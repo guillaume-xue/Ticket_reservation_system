@@ -1,0 +1,28 @@
+Ce modèles est basé sur le Grand Rex, mais avec des options
+provenant d'évenement de l'Accor Arena.
+
+Un utilisateur est determiné par son adresse mail.
+
+Chaque utilisateur peut avoir un avantage (abonnement/code promo),
+un historique de transaction et un status qui est là pour définir
+les propres à un utilisateur.   
+
+L'utilisateur peut recevoir des crénaux de réservation dans le cas 
+d'un événement trop surchargé auquel il s'est inscrit au préalable
+sur la liste d'attente.
+
+Pour chaque billet qu'il détient, il peut le revendre à un autre utilisateur.
+
+A chaque essaie d'achat de billet, une pré réservation lui est créé
+pour garder sa place le temps du payement.
+
+Chaque billet contient la séance et la catégorie achetée.
+
+Une catégorie peut etre "classique" ou "VIP" dans l'exemple du Grand Rex,
+ou bien "cat 1, 2,..." dans le cas d'un concert.
+
+Chaque évenement peut avoir plusieurs séances.
+
+Chaque séances doit préciser quel catégorie elles contiennent.
+
+La politique de l'établissement doit être appliquée sur les séances et évenements.
