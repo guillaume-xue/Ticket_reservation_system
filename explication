@@ -26,3 +26,13 @@ Chaque évenement peut avoir plusieurs séances.
 Chaque séances doit préciser quel catégorie elles contiennent.
 
 La politique de l'établissement doit être appliquée sur les séances et évenements.
+
+les cle etrangere sont des relation 
+un utilistaeur est uni directionnel sur l'utilisateur
+reservation est en relation avec l'evenement
+type de restriction doit etre une entite appart
+le type dans seance est deja relier dans categorie
+nb de place dans categorie
+deux relation de utilisateur avec les echange de billet
+crenneaux de connection avec l'evenement
+enlever les types qui sont deja en relation
