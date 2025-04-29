@@ -117,3 +117,8 @@ CREATE TABLE EvenementEtablissement (
     FOREIGN KEY (ETAadresse) REFERENCES Etablissement(ETAadresse),
     PRIMARY KEY (Eid, ETAadresse)
 );
+
+CREATE TABLE TEMPS (
+jour INTEGER NOT NULL,
+heure INTEGER NOT NULL CHECK (heure >= 0 AND heure < 24)
+);
