@@ -1,54 +1,35 @@
--- Fonction
-CREATE OR REPLACE FUNCTION controle_temps() 
-RETURNS TRIGGER AS $$
-BEGIN
-  IF TG_OPNAME = ’UPDATE’ THEN
-
-    IF NEW.jour < OLD.jour THEN RAISE EXCEPTION ’Impossible’;
-    ELSIF NEW.jour = OLD.jour AND NEW.heure < OLD.heure THEN 
-      RAISE EXCEPTION ’Impossible’;
-    END IF;
-    ELSIF TG_OPNAME = ’INSERT’ THEN
-    IF (SELECT COUNT(*) FROM TEMPS) > 0 THEN RAISE EXCEPTION ’Impossible’;
-    END IF;
-  END IF;
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-
--- Fonction pour insérer un nouvel utilisateur
-CREATE OR REPLACE FUNCTION inserer_utilisateur(
-    email VARCHAR(255),
-    nom VARCHAR(64),
-    prenom VARCHAR(64),
-    statut VARCHAR(255)
+-- Fonction pour récupérer les événements disponibles pour un utilisateur
+CREATE OR REPLACE FUNCTION recuperer_evenements_disponibles(
+    user_email VARCHAR(255)
 )
-RETURNS VOID AS $$
-DECLARE
-    nb_max_billets INT;
+RETURNS TABLE (
+    evenement_id TEXT,
+    nom_evenement VARCHAR(255),
+    date_evenement TIMESTAMP,
+    description_evenement TEXT,
+    type_evenement VARCHAR(32)
+) AS $$
 BEGIN
-    -- Vérification du statut
-    IF statut NOT IN ('Normal', 'VIP', 'VVIP') THEN
-        RAISE EXCEPTION 'Statut invalide : %', statut;
-    END IF;
-
-    -- Modification du nombre maximum de billets en fonction du statut
-    IF statut = 'Normal' THEN
-        nb_max_billets := 5;
-    ELSIF statut = 'VIP' THEN
-        nb_max_billets := 10;
-    ELSIF statut = 'VVIP' THEN
-        nb_max_billets := 20;
-    END IF;
-
-    -- Vérification du nombre maximum de billets
-    IF nb_max_billets <= 0 THEN
-        RAISE EXCEPTION 'Le nombre maximum de billets doit être supérieur à 0';
-    END IF;
-
-    -- Insertion dans la table Utilisateur
-    INSERT INTO Utilisateur (Uemail, Unom, Uprenom, Ustatut, Unb_max_billets)
-    VALUES (email, nom, prenom, statut, nb_max_billets);
+    RETURN QUERY
+    SELECT 
+        E.Eid AS evenement_id,
+        E.Enom AS nom_evenement,
+        E.Edate AS date_evenement,
+        E.Edescription AS description_evenement,
+        E.Etype AS type_evenement
+    FROM Evenement E
+    JOIN CategorieEvenement CE ON E.Eid = CE.Eid
+    JOIN Categorie C ON CE.CATnom = C.CATnom
+    JOIN Utilisateur U ON U.Uemail = user_email
+    WHERE U.Ustatut IN ('Normal', 'VIP', 'VVIP') -- Filtrage par statut
+      AND C.CATprix <= (
+          CASE 
+              WHEN U.Ustatut = 'Normal' THEN 50
+              WHEN U.Ustatut = 'VIP' THEN 100
+              WHEN U.Ustatut = 'VVIP' THEN 200
+          END
+      )
+      AND E.Etype IN ('Concert', 'SousEvenement') -- Préférences utilisateur
+    ORDER BY E.Edate; -- Trier par date
 END;
 $$ LANGUAGE plpgsql;

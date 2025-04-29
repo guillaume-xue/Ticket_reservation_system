@@ -11,15 +11,26 @@ CREATE TABLE Utilisateur (
 
 CREATE TABLE CreneauConnexion (
     CCdate_heure_debut TIMESTAMP NOT NULL,
+    CCdate_heure_fin TIMESTAMP NOT NULL,
     CCetat VARCHAR(255) NOT NULL,
-    PRIMARY KEY (CCdate_heure_debut)
+    PRIMARY KEY (CCdate_heure_debut, CCdate_heure_fin),
+    CHECK (CCetat IN ('Ouvert', 'Ferme', 'En attente')),
+    CHECK (CCdate_heure_debut >= CURRENT_TIMESTAMP),
+    CHECK (CCdate_heure_fin > CCdate_heure_debut)
+
 );
 
 CREATE TABLE Billet (
     Bid TEXT NOT NULL,
-    Bprix_final DECIMAL(10, 2) NOT NULL,
-    Bpromotion DECIMAL(10, 2) NOT NULL,
+    Bdate_achat TIMESTAMP,
+    Bprix_initial DECIMAL(10, 2) NOT NULL,
+    Bprix_achat DECIMAL(10, 2),
+    Bpromotion INT NOT NULL,
+    Bdisponibilite BOOLEAN NOT NULL,
     PRIMARY KEY (Bid),
+    CHECK (Bprix_achat > 0),
+    CHECK (Bprix_initial > 0),
+    CHECK (Bpromotion >= 0 AND Bpromotion <= 100)
 );
 
 CREATE TABLE PolitiqueEtablissement (
@@ -38,6 +49,8 @@ CREATE TABLE Categorie (
     CATprix DECIMAL(10, 2) NOT NULL,
     CATnum_place INT NOT NULL,
     PRIMARY KEY (Cnom)
+    CHECK (CATprix > 0),
+    CHECK (CATnum_place > 0)
 );
 
 CREATE TABLE Evenement (
@@ -49,6 +62,7 @@ CREATE TABLE Evenement (
     Etype VARCHAR(32) NOT NULL,
     PRIMARY KEY (Eid)
     CHECK (Etype IN ('Concert', 'SousEvenement', 'Film'))
+    CHECK (Enum_salle > 0)
 );
 
 -- Relations
@@ -70,20 +84,14 @@ CREATE TABLE Achat (
     PRIMARY KEY (Uemail, Bid)
 );
 
-CREATE TABLE CreneauConnexionBillet (
-    CCdate_heure_debut TIMESTAMP NOT NULL,
-    Bid TEXT NOT NULL,
-    FOREIGN KEY (CCdate_heure_debut) REFERENCES CreneauConnexion(CCdate_heure_debut),
-    FOREIGN KEY (Bid) REFERENCES Billet(Bid),
-    PRIMARY KEY (CCdate_heure_debut, Bid)
-);
-
-CREATE TABLE CreneauConnexionUtilisateur (
+CREATE TABLE CreneauConnexionUtilisateurBillet (
     CCdate_heure_debut TIMESTAMP NOT NULL,
     Uemail VARCHAR(255) NOT NULL,
+    Bid TEXT NOT NULL,
     FOREIGN KEY (CCdate_heure_debut) REFERENCES CreneauConnexion(CCdate_heure_debut),
     FOREIGN KEY (Uemail) REFERENCES Utilisateur(Uemail),
-    PRIMARY KEY (CCdate_heure_debut, Uemail)
+    FOREIGN KEY (Bid) REFERENCES Billet(Bid),
+    PRIMARY KEY (CCdate_heure_debut, Uemail, Bid)
 );
 
 CREATE TABLE EtablissementPolitique (
@@ -119,6 +127,6 @@ CREATE TABLE EvenementEtablissement (
 );
 
 CREATE TABLE TEMPS (
-jour INTEGER NOT NULL,
-heure INTEGER NOT NULL CHECK (heure >= 0 AND heure < 24)
+    jour INTEGER NOT NULL,
+    heure INTEGER NOT NULL CHECK (heure >= 0 AND heure < 24)
 );
