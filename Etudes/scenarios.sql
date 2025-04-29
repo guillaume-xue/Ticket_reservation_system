@@ -123,3 +123,36 @@ BEGIN
     WHERE Bid = billet_id;
 END;
 $$ LANGUAGE plpgsql;
+
+-- Fonction pour annuler une réservation
+-- Cette fonction met à jour le statut de la réservation et remet le billet
+-- à la disponibilité.
+CREATE OR REPLACE FUNCTION annuler_reservation(
+    user_email VARCHAR(255),
+    billet_id TEXT
+)
+RETURNS VOID AS $$
+BEGIN
+    -- Vérification de l'existence de la réservation
+    IF NOT EXISTS (
+        SELECT 1
+        FROM Reservation
+        WHERE Uemail = user_email
+          AND Bid = billet_id
+          AND Rstatut = 'Pre-reserve'
+    ) THEN
+        RAISE EXCEPTION 'Aucune réservation trouvée pour le billet %', billet_id;
+    END IF;
+
+    -- Mettre à jour le statut de la réservation et remettre le billet à la disponibilité
+    UPDATE Reservation
+    SET Rstatut = 'Annule'
+    WHERE Uemail = user_email
+      AND Bid = billet_id;
+
+    -- Remettre le billet à la disponibilité
+    UPDATE Billet
+    SET Bdisponibilite = TRUE
+    WHERE Bid = billet_id;
+END;
+$$ LANGUAGE plpgsql;
