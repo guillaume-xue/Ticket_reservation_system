@@ -46,6 +46,7 @@ CREATE OR REPLACE FUNCTION pre_reserver_billet(
 )
 RETURNS VOID AS $$
 DECLARE
+    nb_max_billets INT;
     billet_disponible BOOLEAN;
 BEGIN
     -- Vérification de la disponibilité du billet
@@ -55,6 +56,24 @@ BEGIN
 
     IF NOT billet_disponible THEN
         RAISE EXCEPTION 'Le billet % n''est pas disponible', billet_id;
+    END IF;
+
+    -- Avoir le nombre maximum de billets autorisés pour l'utilisateur
+    SELECT Unb_max_billets INTO nb_max_billets
+    FROM Utilisateur
+    WHERE Uemail = user_email;
+
+    -- Vérifier si l'utilisateur existe
+    IF nb_max_billets IS NULL THEN
+        RAISE EXCEPTION 'Utilisateur % non trouvé', user_email;
+    END IF;
+
+    -- Verifier le nombre de pré-réservations
+    IF (SELECT COUNT(*)
+        FROM Reservation
+        WHERE Uemail = user_email
+          AND Rstatut = 'Pre-reserve') >= nb_max_billets THEN
+        RAISE EXCEPTION 'Limite de pré-réservations atteinte pour l''utilisateur %', user_email;
     END IF;
 
     -- Mettre à jour la disponibilité du billet
