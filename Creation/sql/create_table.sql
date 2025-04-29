@@ -84,6 +84,18 @@ CREATE TABLE Achat (
     PRIMARY KEY (Uemail, Bid)
 );
 
+CREATE TABLE Reservation (
+    Uemail VARCHAR(255) NOT NULL,
+    Bid TEXT NOT NULL,
+    Rdate_heure_debut TIMESTAMP NOT NULL,
+    Rdate_heure_fin TIMESTAMP NOT NULL,
+    Rstatut VARCHAR(255) NOT NULL,
+    FOREIGN KEY (Uemail) REFERENCES Utilisateur(Uemail),
+    FOREIGN KEY (Bid) REFERENCES Billet(Bid),
+    PRIMARY KEY (Uemail, Bid),
+    CHECK (Retat IN ('Pré-réservé', 'Réservé', 'Annulé', 'Confirmé')),
+);
+
 CREATE TABLE CreneauConnexionUtilisateurBillet (
     CCdate_heure_debut TIMESTAMP NOT NULL,
     Uemail VARCHAR(255) NOT NULL,

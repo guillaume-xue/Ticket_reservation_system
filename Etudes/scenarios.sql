@@ -33,3 +33,74 @@ BEGIN
     ORDER BY E.Edate; -- Trier par date
 END;
 $$ LANGUAGE plpgsql;
+
+-- Fonction pour pré-réserver un billet
+-- Cette fonction vérifie la disponibilité du billet et l'associe à l'utilisateur
+-- en mettant à jour la table Billet et en insérant une nouvelle réservation
+-- dans la table Reservation.
+CREATE OR REPLACE FUNCTION pre_reserver_billet(
+    user_email VARCHAR(255),
+    billet_id TEXT,
+    creneau_debut TIMESTAMP,
+    creneau_fin TIMESTAMP
+)
+RETURNS VOID AS $$
+DECLARE
+    billet_disponible BOOLEAN;
+BEGIN
+    -- Vérification de la disponibilité du billet
+    SELECT Bdisponibilite INTO billet_disponible
+    FROM Billet
+    WHERE Bid = billet_id;
+
+    IF NOT billet_disponible THEN
+        RAISE EXCEPTION 'Le billet % n''est pas disponible', billet_id;
+    END IF;
+
+    -- Mettre à jour la disponibilité du billet
+    UPDATE Billet
+    SET Bdisponibilite = FALSE
+    WHERE Bid = billet_id;
+
+    -- Insertion de la pré-réservation
+    INSERT INTO Reservation (Uemail, Bid, Rdate_heure_debut, Rdate_heure_fin,
+                             Rstatut)
+    VALUES (user_email, billet_id, creneau_debut, creneau_fin, 'Pre-reserve');
+END;
+$$ LANGUAGE plpgsql;
+
+-- Fonction pour confirmer une réservation
+-- Cette fonction met à jour le statut de la réservation et le prix d'achat
+-- dans la table Billet.
+CREATE OR REPLACE FUNCTION confirmer_reservation(
+    user_email VARCHAR(255),
+    billet_id TEXT,
+    prix_achat DECIMAL(10, 2)
+)
+RETURNS VOID AS $$
+BEGIN
+    -- Vérification de l'existence de la réservation
+    IF NOT EXISTS (
+        SELECT 1
+        FROM Reservation
+        WHERE Uemail = user_email
+          AND Bid = billet_id
+          AND Rstatut = 'Pre-reserve'
+    ) THEN
+        RAISE EXCEPTION 'Aucune réservation trouvée pour le billet %', billet_id;
+    END IF;
+
+    -- Mettre à jour le statut de la réservation et le prix d'achat
+    UPDATE Reservation
+    SET Rstatut = 'Confirme',
+        Rprix_achat = prix_achat
+    WHERE Uemail = user_email
+      AND Bid = billet_id;
+
+    -- Mettre à jour le prix d'achat du billet
+    UPDATE Billet
+    SET Bprix_achat = prix_achat,
+        Bdisponibilite = TRUE -- Le billet est maintenant disponible après confirmation
+    WHERE Bid = billet_id;
+END;
+$$ LANGUAGE plpgsql;
