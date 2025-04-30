@@ -213,3 +213,66 @@ BEGIN
         OR MAX(R.Rdate_heure_debut) - MIN(R.Rdate_heure_debut) < INTERVAL '1 day'; -- Réservations concentrées sur une journée
 END;
 $$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION gerer_creneau_connexion(
+    user_email VARCHAR(255),
+    date_debut TIMESTAMP,
+    date_fin TIMESTAMP
+)
+RETURNS BOOLEAN AS $$
+DECLARE
+    statut_utilisateur VARCHAR(255);
+    connexions_actuelles INT;
+    max_connexions INT;
+    connexions_utilisateur INT;
+BEGIN
+    -- Récupérer le statut de l'utilisateur
+    SELECT Ustatut INTO statut_utilisateur
+    FROM Utilisateur
+    WHERE Uemail = user_email;
+
+    IF statut_utilisateur IS NULL THEN
+        RAISE EXCEPTION 'Utilisateur % non trouvé', user_email;
+    END IF;
+
+    -- Récupérer le nombre de connexions actives
+    SELECT COUNT(*) INTO connexions_actuelles
+    FROM Utilisateur
+    WHERE Uconnecte = TRUE;
+
+    -- Vérifier la charge système (limiter à 100 connexions simultanées)
+    SELECT max_connexions INTO max_connexions
+    FROM CreneauConnexion
+    WHERE CCdate_heure_debut <= CURRENT_TIMESTAMP
+      AND CCdate_heure_fin >= CURRENT_TIMESTAMP;
+
+    IF max_connexions IS NULL THEN
+        max_connexions := 100; -- Valeur par défaut si aucune connexion active
+    END IF;
+
+    IF connexions_actuelles >= max_connexions THEN
+        RAISE EXCEPTION 'Charge système maximale atteinte. Veuillez réessayer plus tard.';
+    END IF;
+
+    -- Vérifier l'historique de l'utilisateur (limiter à 3 connexions actives)
+    SELECT COUNT(*) INTO connexions_utilisateur
+    FROM CreneauConnexion
+    WHERE Uemail = user_email
+      AND CCdate_heure_fin > CURRENT_TIMESTAMP;
+
+    IF connexions_utilisateur >= 3 THEN
+        RAISE EXCEPTION 'Utilisateur % a atteint la limite de connexions actives.', user_email;
+    END IF;
+
+    -- Insérer le créneau de connexion
+    INSERT INTO CreneauConnexion (CCdate_heure_debut, CCdate_heure_fin, CCetat)
+    VALUES (date_debut, date_fin, 'Ouvert');
+
+    -- Mettre à jour le statut de l'utilisateur
+    UPDATE Utilisateur
+    SET Uconnecte = TRUE
+    WHERE Uemail = user_email;
+
+    RETURN TRUE;
+END;
+$$ LANGUAGE plpgsql;
