@@ -365,3 +365,116 @@ BEGIN
     END;
 END;
 $$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION gerer_reservation_automatique(
+    user_email VARCHAR(255),
+    billet_id TEXT,
+    date_debut TIMESTAMP,
+    date_fin TIMESTAMP
+)
+RETURNS BOOLEAN AS $$
+DECLARE
+    statut_utilisateur VARCHAR(255);
+    connexions_actuelles INT;
+    max_connexions INT;
+    connexions_utilisateur INT;
+    nb_max_billets INT;
+    billet_disponible BOOLEAN;
+BEGIN
+    -- Démarrer une transaction
+    BEGIN
+        -- Vérifier si l'utilisateur existe et récupérer son statut
+        SELECT Ustatut, Unb_max_billets INTO statut_utilisateur, nb_max_billets
+        FROM Utilisateur
+        WHERE Uemail = user_email;
+
+        IF statut_utilisateur IS NULL THEN
+            RAISE EXCEPTION 'Utilisateur % non trouvé', user_email;
+        END IF;
+
+        -- Vérifier la disponibilité du billet
+        SELECT Bdisponibilite INTO billet_disponible
+        FROM Billet
+        WHERE Bid = billet_id;
+
+        IF NOT billet_disponible THEN
+            RAISE EXCEPTION 'Le billet % n''est pas disponible', billet_id;
+        END IF;
+
+        -- Vérifier le nombre de connexions actives
+        SELECT COUNT(*) INTO connexions_actuelles
+        FROM Utilisateur
+        WHERE Uconnecte = TRUE;
+
+        -- Vérifier la charge système (limiter à 100 connexions simultanées)
+        SELECT max_connexions INTO max_connexions
+        FROM CreneauConnexion
+        WHERE CCdate_heure_debut <= CURRENT_TIMESTAMP
+          AND CCdate_heure_fin >= CURRENT_TIMESTAMP;
+
+        IF max_connexions IS NULL THEN
+            max_connexions := 100; -- Valeur par défaut si aucune connexion active
+        END IF;
+
+        IF connexions_actuelles >= max_connexions THEN
+            RAISE EXCEPTION 'Charge système maximale atteinte. Veuillez réessayer plus tard.';
+        END IF;
+
+        -- Vérifier l'historique de l'utilisateur (limiter à 3 connexions actives)
+        SELECT COUNT(*) INTO connexions_utilisateur
+        FROM CreneauConnexion
+        WHERE Uemail = user_email
+          AND CCdate_heure_fin > CURRENT_TIMESTAMP;
+
+        IF connexions_utilisateur >= 3 THEN
+            RAISE EXCEPTION 'Utilisateur % a atteint la limite de connexions actives.', user_email;
+        END IF;
+
+        -- Vérifier le nombre de pré-réservations
+        IF (SELECT COUNT(*)
+            FROM Reservation
+            WHERE Uemail = user_email
+              AND Rstatut = 'Pre-reserve') >= nb_max_billets THEN
+            RAISE EXCEPTION 'Limite de pré-réservations atteinte pour l''utilisateur %', user_email;
+        END IF;
+
+        -- Insérer le créneau de connexion
+        INSERT INTO CreneauConnexion (CCdate_heure_debut, CCdate_heure_fin, CCetat)
+        VALUES (date_debut, date_fin, 'Ouvert');
+
+        -- Mettre à jour la disponibilité du billet
+        UPDATE Billet
+        SET Bdisponibilite = FALSE
+        WHERE Bid = billet_id;
+
+        -- Insertion de la pré-réservation
+        INSERT INTO Reservation (Uemail, Bid, Rdate_heure_debut, Rdate_heure_fin, Rstatut)
+        VALUES (user_email, billet_id, date_debut, date_fin, 'Pre-reserve');
+
+        -- Vérifier les comportements suspects et mettre à jour Ususpect
+        UPDATE Utilisateur
+        SET Ususpect = TRUE
+        WHERE Uemail IN (
+            SELECT U.Uemail
+            FROM Utilisateur U
+            JOIN Reservation R ON U.Uemail = R.Uemail
+            GROUP BY U.Uemail
+            HAVING 
+                COUNT(CASE WHEN R.Rstatut = 'Annule' THEN 1 END) > 10 -- Plus de 10 annulations
+                OR COUNT(R.Bid) > 50 -- Plus de 50 réservations
+                OR AVG(EXTRACT(EPOCH FROM (R.Rdate_heure_fin - R.Rdate_heure_debut))) / 3600 < 1 -- Durée moyenne < 1 heure
+                OR MAX(R.Rdate_heure_debut) - MIN(R.Rdate_heure_debut) < INTERVAL '1 day' -- Réservations concentrées sur une journée
+        );
+
+        -- Si tout se passe bien, valider la transaction
+        COMMIT;
+        RETURN TRUE;
+
+    EXCEPTION
+        WHEN OTHERS THEN
+            -- En cas d'erreur, annuler la transaction
+            ROLLBACK;
+            RAISE;
+    END;
+END;
+$$ LANGUAGE plpgsql;
