@@ -15,6 +15,7 @@ CREATE TABLE CreneauConnexion (
     CCdate_heure_debut TIMESTAMP NOT NULL,
     CCdate_heure_fin TIMESTAMP NOT NULL,
     CCetat VARCHAR(255) NOT NULL,
+    CCmax_connexions INT NOT NULL,
     PRIMARY KEY (CCdate_heure_debut, CCdate_heure_fin),
     CHECK (CCetat IN ('Ouvert', 'Ferme', 'En attente')),
     CHECK (CCdate_heure_debut >= CURRENT_TIMESTAMP),
@@ -98,14 +99,21 @@ CREATE TABLE Reservation (
     CHECK (Retat IN ('Pré-réservé', 'Réservé', 'Annulé', 'Confirmé')),
 );
 
-CREATE TABLE CreneauConnexionUtilisateurBillet (
+CREATE TABLE CreneauConnexionUtilisateur (
     CCdate_heure_debut TIMESTAMP NOT NULL,
     Uemail VARCHAR(255) NOT NULL,
-    Bid TEXT NOT NULL,
     FOREIGN KEY (CCdate_heure_debut) REFERENCES CreneauConnexion(CCdate_heure_debut),
     FOREIGN KEY (Uemail) REFERENCES Utilisateur(Uemail),
     FOREIGN KEY (Bid) REFERENCES Billet(Bid),
     PRIMARY KEY (CCdate_heure_debut, Uemail, Bid)
+);
+
+CREATE TABLE CreneauConnexionBillet (
+    CCdate_heure_debut TIMESTAMP NOT NULL,
+    Bid TEXT NOT NULL,
+    FOREIGN KEY (CCdate_heure_debut) REFERENCES CreneauConnexion(CCdate_heure_debut),
+    FOREIGN KEY (Bid) REFERENCES Billet(Bid),
+    PRIMARY KEY (CCdate_heure_debut, Bid)
 );
 
 CREATE TABLE EtablissementPolitique (
