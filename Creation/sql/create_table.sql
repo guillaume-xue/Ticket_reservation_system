@@ -4,6 +4,7 @@ CREATE TABLE Utilisateur (
     Uprenom VARCHAR(64) NOT NULL,
     Ustatut VARCHAR(255) NOT NULL,
     Unb_max_billets INT NOT NULL,
+    Ususpect BOOLEAN NOT NULL,
     PRIMARY KEY (Uemail),
     CHECK (Ustatut IN ('Normal', 'VIP', 'VVIP')),
     CHECK (Unb_max_billets > 0)

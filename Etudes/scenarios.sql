@@ -156,3 +156,60 @@ BEGIN
     WHERE Bid = billet_id;
 END;
 $$ LANGUAGE plpgsql;
+
+-- Fonction pour vérifier les comportements suspects des utilisateurs
+-- Cette fonction met à jour la colonne Ususpect dans la table Utilisateur
+-- et retourne une liste des utilisateurs suspects avec leurs statistiques.
+-- Les critères de suspicion incluent :
+-- - Plus de 10 annulations
+-- - Plus de 50 réservations
+-- - Durée moyenne de réservation inférieure à 1 heure
+-- - Réservations concentrées sur une journée
+CREATE OR REPLACE FUNCTION verifier_comportements_suspects()
+RETURNS TABLE (
+    utilisateur_email VARCHAR(255),
+    nombre_reservations INT,
+    nombre_annulations INT,
+    nombre_pre_reservations INT,
+    nombre_confirmations INT,
+    duree_moyenne_reservation_heures DECIMAL(10, 2),
+    derniere_reservation TIMESTAMP,
+    premiere_reservation TIMESTAMP
+) AS $$
+BEGIN
+    -- Mettre à jour la colonne Ususpect pour les utilisateurs suspects
+    UPDATE Utilisateur
+    SET Ususpect = TRUE
+    WHERE Uemail IN (
+        SELECT U.Uemail
+        FROM Utilisateur U
+        JOIN Reservation R ON U.Uemail = R.Uemail
+        GROUP BY U.Uemail
+        HAVING 
+            COUNT(CASE WHEN R.Rstatut = 'Annule' THEN 1 END) > 10 -- Plus de 10 annulations
+            OR COUNT(R.Bid) > 50 -- Plus de 50 réservations
+            OR AVG(EXTRACT(EPOCH FROM (R.Rdate_heure_fin - R.Rdate_heure_debut))) / 3600 < 1 -- Durée moyenne < 1 heure
+            OR MAX(R.Rdate_heure_debut) - MIN(R.Rdate_heure_debut) < INTERVAL '1 day' -- Réservations concentrées sur une journée
+    );
+
+    -- Retourner la liste des utilisateurs suspects avec leurs statistiques
+    RETURN QUERY
+    SELECT 
+        U.Uemail AS utilisateur_email,
+        COUNT(R.Bid) AS nombre_reservations,
+        COUNT(CASE WHEN R.Rstatut = 'Annule' THEN 1 END) AS nombre_annulations,
+        COUNT(CASE WHEN R.Rstatut = 'Pre-reserve' THEN 1 END) AS nombre_pre_reservations,
+        COUNT(CASE WHEN R.Rstatut = 'Confirme' THEN 1 END) AS nombre_confirmations,
+        AVG(EXTRACT(EPOCH FROM (R.Rdate_heure_fin - R.Rdate_heure_debut))) / 3600 AS duree_moyenne_reservation_heures,
+        MAX(R.Rdate_heure_debut) AS derniere_reservation,
+        MIN(R.Rdate_heure_debut) AS premiere_reservation
+    FROM Reservation R
+    JOIN Utilisateur U ON R.Uemail = U.Uemail
+    GROUP BY U.Uemail
+    HAVING 
+        COUNT(CASE WHEN R.Rstatut = 'Annule' THEN 1 END) > 10 -- Plus de 10 annulations
+        OR COUNT(R.Bid) > 50 -- Plus de 50 réservations
+        OR AVG(EXTRACT(EPOCH FROM (R.Rdate_heure_fin - R.Rdate_heure_debut))) / 3600 < 1 -- Durée moyenne < 1 heure
+        OR MAX(R.Rdate_heure_debut) - MIN(R.Rdate_heure_debut) < INTERVAL '1 day'; -- Réservations concentrées sur une journée
+END;
+$$ LANGUAGE plpgsql;
