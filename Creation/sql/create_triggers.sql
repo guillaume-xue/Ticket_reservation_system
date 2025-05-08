@@ -1,14 +1,14 @@
 CREATE OR REPLACE FUNCTION controle_temps() RETURNS TRIGGER AS $$
 BEGIN
-    IF TG_OPNAME = ’UPDATE’ THEN
+    IF TG_OPNAME = UPDATE THEN
         IF NEW.jour < OLD.jour THEN 
-            RAISE EXCEPTION ’Impossible’;
+            RAISE EXCEPTION 'Impossible';
         ELSIF NEW.jour = OLD.jour AND NEW.heure < OLD.heure THEN 
-            RAISE EXCEPTION ’Impossible’;
+            RAISE EXCEPTION 'Impossible';
         END IF;
-        ELSIF TG_OPNAME = ’INSERT’ THEN
+        ELSIF TG_OPNAME = INSERT THEN
             IF (SELECT COUNT(*) FROM TEMPS) > 0 THEN 
-                RAISE EXCEPTION ’Impossible’;
+                RAISE EXCEPTION 'Impossible';
         END IF;
     END IF;
     RETURN NEW;
@@ -20,52 +20,42 @@ CREATE TRIGGER controle_temps_trigger BEFORE UPDATE OR INSERT ON TEMPS
 FOR EACH ROW
 EXECUTE PROCEDURE controle_temps();
 
--- Fonction pour insérer un nouvel utilisateur
-CREATE OR REPLACE FUNCTION inserer_utilisateur(
-    email VARCHAR(255),
-    nom VARCHAR(64),
-    prenom VARCHAR(64),
-    statut VARCHAR(255)
-)
-RETURNS VOID AS $$
-DECLARE
-    nb_max_billets INT;
+-- Fonction de trigger pour calculer automatiquement Unb_max_billets
+CREATE OR REPLACE FUNCTION calcul_nb_max_billets()
+RETURNS TRIGGER AS $$
 BEGIN
     -- Vérification du statut
-    IF statut NOT IN ('Normal', 'VIP', 'VVIP') THEN
-        RAISE EXCEPTION 'Statut invalide : %', statut;
+    IF NEW.Ustatut NOT IN ('Normal', 'VIP', 'VVIP') THEN
+        RAISE EXCEPTION 'Statut invalide : %', NEW.Ustatut;
     END IF;
 
-    -- Modification du nombre maximum de billets en fonction du statut
-    IF statut = 'Normal' THEN
-        nb_max_billets := 5;
-    ELSIF statut = 'VIP' THEN
-        nb_max_billets := 10;
-    ELSIF statut = 'VVIP' THEN
-        nb_max_billets := 20;
+    -- Calcul du nombre maximum de billets
+    IF NEW.Ustatut = 'Normal' THEN
+        NEW.Unb_max_billets := 5;
+    ELSIF NEW.Ustatut = 'VIP' THEN
+        NEW.Unb_max_billets := 10;
+    ELSIF NEW.Ustatut = 'VVIP' THEN
+        NEW.Unb_max_billets := 20;
     END IF;
 
-    -- Vérification du nombre maximum de billets
-    IF nb_max_billets <= 0 THEN
-        RAISE EXCEPTION 'Le nombre maximum de billets doit être supérieur à 0';
-    END IF;
-
-    -- Insertion dans la table Utilisateur
-    INSERT INTO Utilisateur (Uemail, Unom, Uprenom, Ustatut, Unb_max_billets)
-    VALUES (email, nom, prenom, statut, nb_max_billets);
+    RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
--- Trigger
-CREATE TRIGGER inserer_utilisateur_trigger AFTER INSERT ON Utilisateur
+-- Trigger avant insertion sur Utilisateur
+CREATE TRIGGER calcul_nb_max_billets_trigger
+BEFORE INSERT ON Utilisateur
 FOR EACH ROW
-EXECUTE PROCEDURE inserer_utilisateur();
+EXECUTE PROCEDURE calcul_nb_max_billets();
 
 -- Fonction pour insérer un nouvel événement
 CREATE OR REPLACE FUNCTION inserer_evenement(
     id TEXT,
     nom VARCHAR(255),
-    date TIMESTAMP,
+    jour_debut INTEGER,
+    heure_debut INTEGER,
+    jour_fin INTEGER,
+    heure_fin INTEGER,
     num_salle INT,
     description TEXT,
     type_evenement VARCHAR(32)
@@ -83,11 +73,6 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Trigger
-CREATE TRIGGER inserer_evenement_trigger AFTER INSERT ON Evenement
-FOR EACH ROW
-EXECUTE PROCEDURE inserer_evenement();
-
 -- Incrementation de l'ID de billet
 CREATE SEQUENCE billet_seq START 1;
 
@@ -103,7 +88,7 @@ $$ LANGUAGE plpgsql;
 
 -- Fonction pour insérer un nouveau billet
 CREATE OR REPLACE FUNCTION creer_billet(
-    prix_initial DECIMAL(10, 2),
+    prix_initial DECIMAL(10, 2)
 )
 RETURNS VOID AS $$
 DECLARE
