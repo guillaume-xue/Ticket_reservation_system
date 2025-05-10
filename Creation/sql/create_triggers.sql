@@ -1,12 +1,12 @@
 CREATE OR REPLACE FUNCTION controle_temps() RETURNS TRIGGER AS $$
 BEGIN
-    IF TG_OPNAME = UPDATE THEN
+    IF TG_OP = 'UPDATE' THEN
         IF NEW.jour < OLD.jour THEN 
             RAISE EXCEPTION 'Impossible';
         ELSIF NEW.jour = OLD.jour AND NEW.heure < OLD.heure THEN 
             RAISE EXCEPTION 'Impossible';
         END IF;
-        ELSIF TG_OPNAME = INSERT THEN
+        ELSIF TG_OP = 'INSERT' THEN
             IF (SELECT COUNT(*) FROM TEMPS) > 0 THEN 
                 RAISE EXCEPTION 'Impossible';
         END IF;
@@ -48,83 +48,138 @@ BEFORE INSERT ON Utilisateur
 FOR EACH ROW
 EXECUTE PROCEDURE calcul_nb_max_billets();
 
--- Fonction pour insérer un nouvel événement
-CREATE OR REPLACE FUNCTION inserer_evenement(
-    id TEXT,
-    nom VARCHAR(255),
-    jour_debut INTEGER,
-    heure_debut INTEGER,
-    jour_fin INTEGER,
-    heure_fin INTEGER,
-    num_salle INT,
-    description TEXT,
-    type_evenement VARCHAR(32)
-)
-RETURNS VOID AS $$
+
+CREATE FUNCTION verifier_etablissement_politique()
+RETURNS TRIGGER AS $$
 BEGIN
-    -- Vérification du type d'événement
-    IF type_evenement NOT IN ('Concert', 'SousEvenement', 'Film') THEN
-        RAISE EXCEPTION 'Type d''événement invalide : %', type_evenement;
+    -- Vérification de l'existence de la politique d'établissement
+    IF NOT EXISTS (SELECT 1 FROM PolitiqueEtablissement WHERE PEtitre = NEW.ETAnom) THEN
+        RAISE EXCEPTION 'La politique d établissement % n existe pas', NEW.ETAnom;
     END IF;
 
-    -- Insertion dans la table Evenement
-    INSERT INTO Evenement (Eid, Enom, Edate, Enum_salle, Edescription, Etype)
-    VALUES (id, nom, date, num_salle, description, type_evenement);
+    INSERT INTO EtablissementPolitique (ETAadresse, ETAnom, PEtitre)
+    VALUES (NEW.ETAadresse, NEW.ETAnom, NEW.ETAnom);
+
+    RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
--- Incrementation de l'ID de billet
-CREATE SEQUENCE billet_seq START 1;
+CREATE TRIGGER lien_etablissment_politique
+AFTER INSERT ON Etablissement
+FOR EACH ROW
+EXECUTE PROCEDURE verifier_etablissement_politique();
+
 
 -- Fonction pour générer un ID de billet unique
-CREATE FUNCTION generer_id_billet() RETURNS TEXT AS $$
-DECLARE
-  numero INT;
+CREATE FUNCTION generer_id_billet(
+    Eid TEXT,
+    Enom VARCHAR(255),
+    Ejour INT,
+    Eheure INT,
+    Enum_salle INT,
+    Bnum_place INT,
+    CATnom VARCHAR(255)
+) 
+RETURNS TEXT AS $$
 BEGIN
-  numero := nextval('billet_seq');
-  RETURN 'BIL-' || TO_CHAR(CURRENT_DATE, 'YYYYMMDD') || '-' || LPAD(numero::text, 5, '0');
-END;
-$$ LANGUAGE plpgsql;
-
--- Fonction pour insérer un nouveau billet
-CREATE OR REPLACE FUNCTION creer_billet(
-    prix_initial DECIMAL(10, 2)
-)
-RETURNS VOID AS $$
-DECLARE
-    id_billet TEXT;
-BEGIN
-    -- Génération de l'ID du billet
-    id_billet := generer_id_billet();
-
-    -- Insertion dans la table Billet
-    INSERT INTO Billet (Bid, Bdate_achat, Bprix_initial, Bprix_achat, Bpromotion, Bdisponibilite)
-    VALUES (id_billet, NULL, prix_initial, 0, 0, TRUE);
+    RETURN Eid || '-' || Enom || '-' || Ejour || '-' || Eheure || '-' || Enum_salle || '-' || Bnum_place || '-' || CATnom;
 END;
 $$ LANGUAGE plpgsql;
 
 -- Fonction pour créer plusieurs billets
-CREATE OR REPLACE FUNCTION creer_billets(
-    prix_initial DECIMAL(10, 2),
-    nb_places INT
-)
-RETURNS VOID AS $$
+CREATE OR REPLACE FUNCTION creer_billets()
+RETURNS TRIGGER AS $$
 DECLARE
-    i INT;
+    CATnb_place INT;
+    CATprix DECIMAL(10, 2);
+    jour INT;
+    heure INT;
+    CATlist TEXT[];
 BEGIN
-    -- Vérification des contraintes
-    IF prix_initial <= 0 THEN
-        RAISE EXCEPTION 'Le prix final doit être supérieur à 0';
-    END IF;
-    
-    -- Vérification du nombre de places
-    IF nb_places <= 0 THEN
-        RAISE EXCEPTION 'Le nombre de places doit être supérieur à 0';
-    END IF;
+    CATlist := ARRAY['Carre Or', 'Cat1', 'Cat2', 'Cat3', 'Cat4'];
+    SELECT TEMPS.jour, TEMPS.heure INTO jour, heure FROM TEMPS LIMIT 1;
 
-    -- Insertion des billets
-    FOR i IN 1..nb_places LOOP
-        PERFORM creer_billet(prix_initial); -- Exemple de prix et promotion
-    END LOOP;
+    IF NEW.Etype = 'Film' THEN
+        SELECT c.CATnb_place, c.CATprix INTO CATnb_place, CATprix
+        FROM Categorie c
+        WHERE c.CATnom = 'Unique';
+        FOR i IN 1..CATnb_place LOOP
+            INSERT INTO Billet (Bid, Bjour_achat, Bheure_achat, Bprix_initial, Bprix_achat, Bpromotion, Bdisponibilite, Bnum_place)
+            VALUES (generer_id_billet(NEW.Eid, NEW.Enom, NEW.Ejour, NEW.Eheure, NEW.Enum_salle, i, 'Unique'), jour, heure, CATprix, CATprix, 0, TRUE, i);
+        END LOOP;
+    ELSIF NEW.Etype = 'SousEvenement' THEN
+        SELECT c.CATnb_place, c.CATprix INTO CATnb_place, CATprix
+        FROM Categorie c
+        WHERE c.CATnom = 'UniqueVIP';        
+        FOR i IN 1..CATnb_place LOOP
+            INSERT INTO Billet (Bid, Bjour_achat, Bheure_achat, Bprix_initial, Bprix_achat, Bpromotion, Bdisponibilite, Bnum_place)
+            VALUES (generer_id_billet(NEW.Eid, NEW.Enom, NEW.Ejour, NEW.Eheure, NEW.Enum_salle, i, 'UniqueVIP'), jour, heure, CATprix, CATprix, 0, TRUE, i);
+        END LOOP;
+    ELSE 
+        FOR i IN 1..array_length(CATlist, 1) LOOP
+            SELECT c.CATnb_place, c.CATprix INTO CATnb_place, CATprix
+            FROM Categorie c
+            WHERE c.CATnom = CATlist[i];            
+            FOR j IN 1..CATnb_place LOOP
+                INSERT INTO Billet (Bid, Bjour_achat, Bheure_achat, Bprix_initial, Bprix_achat, Bpromotion, Bdisponibilite, Bnum_place)
+                VALUES (generer_id_billet(NEW.Eid, NEW.Enom, NEW.Ejour, NEW.Eheure, NEW.Enum_salle, j, CATlist[i]), jour, heure, CATprix, CATprix, 0, TRUE, j);
+            END LOOP;
+        END LOOP;
+    END IF;
+    RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+
+CREATE TRIGGER creer_billets_trigger
+AFTER INSERT ON Evenement
+FOR EACH ROW
+EXECUTE PROCEDURE creer_billets();
+
+
+-- Fonction de trigger pour insérer dans CategorieBillet après ajout d'un billet
+CREATE OR REPLACE FUNCTION inserer_categorie_billet()
+RETURNS TRIGGER AS $$
+DECLARE
+    CATnom VARCHAR(255);
+BEGIN
+    CATnom := split_part(NEW.Bid, '-', 7);
+
+    INSERT INTO CategorieBillet (CATnom, Bid)
+    VALUES (CATnom, NEW.Bid);
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Trigger sur la table Billet
+CREATE TRIGGER ajout_categorie_billet_trigger
+AFTER INSERT ON Billet
+FOR EACH ROW
+EXECUTE PROCEDURE inserer_categorie_billet();
+
+
+CREATE FUNCTION verifier_categorie_evenement()
+RETURNS TRIGGER AS $$
+DECLARE
+    CATlist TEXT[];
+BEGIN
+    CATlist := ARRAY['Carre Or', 'Cat1', 'Cat2', 'Cat3', 'Cat4'];
+    IF NEW.Etype = 'Film' THEN
+        INSERT INTO CategorieEvenement (CATnom, Eid)
+        VALUES ('Unique', NEW.Eid);
+    ELSIF NEW.Etype = 'SousEvenement' THEN
+        INSERT INTO CategorieEvenement (CATnom, Eid)
+        VALUES ('UniqueVIP', NEW.Eid);
+    ELSE 
+        FOR i IN 1..array_length(CATlist, 1) LOOP
+            INSERT INTO CategorieEvenement (CATnom, Eid)
+            VALUES (CATlist[i], NEW.Eid);
+        END LOOP;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER lien_categorie_evenement
+AFTER INSERT ON Evenement
+FOR EACH ROW
+EXECUTE PROCEDURE verifier_categorie_evenement();

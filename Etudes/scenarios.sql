@@ -5,7 +5,8 @@ CREATE OR REPLACE FUNCTION recuperer_evenements_disponibles(
 RETURNS TABLE (
     evenement_id TEXT,
     nom_evenement VARCHAR(255),
-    date_evenement TIMESTAMP,
+    jour_evenement INT,
+    heure_evenement INT,
     description_evenement TEXT,
     type_evenement VARCHAR(32)
 ) AS $$
@@ -14,7 +15,8 @@ BEGIN
     SELECT 
         E.Eid AS evenement_id,
         E.Enom AS nom_evenement,
-        E.Edate AS date_evenement,
+        E.Ejour AS jour_evenement,
+        E.Eheure AS heure_evenement,
         E.Edescription AS description_evenement,
         E.Etype AS type_evenement
     FROM Evenement E
@@ -30,7 +32,7 @@ BEGIN
           END
       )
       AND E.Etype IN ('Concert', 'SousEvenement') -- Préférences utilisateur
-    ORDER BY E.Edate; -- Trier par date
+    ORDER BY E.Ejour, E.Eheure; -- Trier par date
 END;
 $$ LANGUAGE plpgsql;
 
@@ -41,8 +43,10 @@ $$ LANGUAGE plpgsql;
 CREATE OR REPLACE FUNCTION pre_reserver_billet(
     user_email VARCHAR(255),
     billet_id TEXT,
-    creneau_debut TIMESTAMP,
-    creneau_fin TIMESTAMP
+    jour_debut INT,
+    heure_debut INT,
+    jour_fin INT,
+    heure_fin INT
 )
 RETURNS VOID AS $$
 DECLARE
@@ -84,7 +88,7 @@ BEGIN
     -- Insertion de la pré-réservation
     INSERT INTO Reservation (Uemail, Bid, Rdate_heure_debut, Rdate_heure_fin,
                              Rstatut)
-    VALUES (user_email, billet_id, creneau_debut, creneau_fin, 'Pre-reserve');
+    VALUES (user_email, billet_id, jour_debut, heure_debut, jour_fin, heure_fin, 'Pre-reserve');
 END;
 $$ LANGUAGE plpgsql;
 
@@ -173,8 +177,10 @@ RETURNS TABLE (
     nombre_pre_reservations INT,
     nombre_confirmations INT,
     duree_moyenne_reservation_heures DECIMAL(10, 2),
-    derniere_reservation TIMESTAMP,
-    premiere_reservation TIMESTAMP
+    jour_dernier_reservation INT,
+    heure_dernier_reservation INT,
+    jour_premiere_reservation INT,
+    heure_premiere_reservation INT
 ) AS $$
 BEGIN
     -- Mettre à jour la colonne Ususpect pour les utilisateurs suspects
@@ -188,8 +194,8 @@ BEGIN
         HAVING 
             COUNT(CASE WHEN R.Rstatut = 'Annule' THEN 1 END) > 10 -- Plus de 10 annulations
             OR COUNT(R.Bid) > 50 -- Plus de 50 réservations
-            OR AVG(EXTRACT(EPOCH FROM (R.Rdate_heure_fin - R.Rdate_heure_debut))) / 3600 < 1 -- Durée moyenne < 1 heure
-            OR MAX(R.Rdate_heure_debut) - MIN(R.Rdate_heure_debut) < INTERVAL '1 day' -- Réservations concentrées sur une journée
+            OR (jour_dernier_reservation - jour_premiere_reservation) * 24 + (heure_dernier_reservation - heure_premiere_reservation) < 1 -- Durée moyenne < 1 heure
+            OR MAX(R.Rjour_fin * 24 + R.Rheure_fin) - MIN(R.Rjour_debut * 24 + R.Rdate_heure_debut) < INTERVAL '1 day' -- Réservations concentrées sur une journée
     );
 
     -- Retourner la liste des utilisateurs suspects avec leurs statistiques
@@ -200,24 +206,28 @@ BEGIN
         COUNT(CASE WHEN R.Rstatut = 'Annule' THEN 1 END) AS nombre_annulations,
         COUNT(CASE WHEN R.Rstatut = 'Pre-reserve' THEN 1 END) AS nombre_pre_reservations,
         COUNT(CASE WHEN R.Rstatut = 'Confirme' THEN 1 END) AS nombre_confirmations,
-        AVG(EXTRACT(EPOCH FROM (R.Rdate_heure_fin - R.Rdate_heure_debut))) / 3600 AS duree_moyenne_reservation_heures,
-        MAX(R.Rdate_heure_debut) AS derniere_reservation,
-        MIN(R.Rdate_heure_debut) AS premiere_reservation
+        (jour_dernier_reservation - jour_premiere_reservation) * 24 + (heure_dernier_reservation - heure_premiere_reservation) AS duree_moyenne_reservation_heures,
+        MAX(R.Rjour_debut) AS jour_dernier_reservation,
+        MAX(R.Rheure_debut) AS heure_dernier_reservation,
+        MIN(R.Rjour_debut) AS jour_premiere_reservation,
+        MIN(R.Rheure_debut) AS heure_premiere_reservation
     FROM Reservation R
     JOIN Utilisateur U ON R.Uemail = U.Uemail
     GROUP BY U.Uemail
     HAVING 
         COUNT(CASE WHEN R.Rstatut = 'Annule' THEN 1 END) > 10 -- Plus de 10 annulations
         OR COUNT(R.Bid) > 50 -- Plus de 50 réservations
-        OR AVG(EXTRACT(EPOCH FROM (R.Rdate_heure_fin - R.Rdate_heure_debut))) / 3600 < 1 -- Durée moyenne < 1 heure
-        OR MAX(R.Rdate_heure_debut) - MIN(R.Rdate_heure_debut) < INTERVAL '1 day'; -- Réservations concentrées sur une journée
+        OR (jour_dernier_reservation - jour_premiere_reservation) * 24 + (heure_dernier_reservation - heure_premiere_reservation) < 1 -- Durée moyenne < 1 heure
+        OR MAX(R.Rjour_fin * 24 + R.Rheure_fin) - MIN(R.Rjour_debut * 24 + R.Rdate_heure_debut) < INTERVAL '1 day'; -- Réservations concentrées sur une journée
 END;
 $$ LANGUAGE plpgsql;
 
 CREATE OR REPLACE FUNCTION gerer_creneau_connexion(
     user_email VARCHAR(255),
-    date_debut TIMESTAMP,
-    date_fin TIMESTAMP
+    jour_debut INT,
+    heure_debut INT,
+    jour_fin INT,
+    heure_fin INT
 )
 RETURNS BOOLEAN AS $$
 DECLARE
@@ -243,8 +253,8 @@ BEGIN
     -- Vérifier la charge système (limiter à 100 connexions simultanées)
     SELECT max_connexions INTO max_connexions
     FROM CreneauConnexion
-    WHERE CCdate_heure_debut <= CURRENT_TIMESTAMP
-      AND CCdate_heure_fin >= CURRENT_TIMESTAMP;
+    WHERE jour_debut * 24 + heure_debut <= (SELECT jour * 24 + heure FROM TEMPS LIMIT 1)
+    AND jour_fin * 24 + heure_fin >= (SELECT jour * 24 + heure FROM TEMPS LIMIT 1);
 
     IF max_connexions IS NULL THEN
         max_connexions := 100; -- Valeur par défaut si aucune connexion active
@@ -258,15 +268,15 @@ BEGIN
     SELECT COUNT(*) INTO connexions_utilisateur
     FROM CreneauConnexion
     WHERE Uemail = user_email
-      AND CCdate_heure_fin > CURRENT_TIMESTAMP;
+      AND jour_fin * 24 + heure_fin > (SELECT jour * 24 + heure FROM TEMPS LIMIT 1);
 
     IF connexions_utilisateur >= 3 THEN
         RAISE EXCEPTION 'Utilisateur % a atteint la limite de connexions actives.', user_email;
     END IF;
 
     -- Insérer le créneau de connexion
-    INSERT INTO CreneauConnexion (CCdate_heure_debut, CCdate_heure_fin, CCetat)
-    VALUES (date_debut, date_fin, 'Ouvert');
+    INSERT INTO CreneauConnexion (CCjour_debut, CCheure_debut, CCjour_fin, CCheure_fin, CCetat)
+    VALUES (jour_debut, heure_debut, jour_fin, heure_fin, 'Ouvert');
 
     -- Mettre à jour le statut de l'utilisateur
     UPDATE Utilisateur
@@ -279,8 +289,10 @@ $$ LANGUAGE plpgsql;
 
 CREATE OR REPLACE FUNCTION gerer_connexion_et_verifier_suspects(
     user_email VARCHAR(255),
-    date_debut TIMESTAMP,
-    date_fin TIMESTAMP
+    jour_debut INT,
+    heure_debut INT,
+    jour_fin INT,
+    heure_fin INT
 )
 RETURNS BOOLEAN AS $$
 DECLARE
@@ -308,8 +320,8 @@ BEGIN
         -- Vérifier la charge système (limiter à 100 connexions simultanées)
         SELECT max_connexions INTO max_connexions
         FROM CreneauConnexion
-        WHERE CCdate_heure_debut <= CURRENT_TIMESTAMP
-          AND CCdate_heure_fin >= CURRENT_TIMESTAMP;
+        WHERE jour_debut * 24 + heure_debut <= (SELECT jour * 24 + heure FROM TEMPS LIMIT 1)
+        AND jour_fin * 24 + heure_fin >= (SELECT jour * 24 + heure FROM TEMPS LIMIT 1);
 
         IF max_connexions IS NULL THEN
             max_connexions := 100; -- Valeur par défaut si aucune connexion active
@@ -323,15 +335,17 @@ BEGIN
         SELECT COUNT(*) INTO connexions_utilisateur
         FROM CreneauConnexionUtilisateur
         WHERE Uemail = user_email
-          AND CCdate_heure_fin > CURRENT_TIMESTAMP;
+            AND jour_fin * 24 + heure_fin > (SELECT jour * 24 + heure FROM TEMPS LIMIT 1);
+
 
         IF connexions_utilisateur >= 3 THEN
             RAISE EXCEPTION 'Utilisateur % a atteint la limite de connexions actives.', user_email;
         END IF;
 
         -- Insérer le créneau de connexion
-        INSERT INTO CreneauConnexion (CCdate_heure_debut, CCdate_heure_fin, CCetat)
-        VALUES (date_debut, date_fin, 'Ouvert');
+        INSERT INTO CreneauConnexion (CCjour_debut, CCheure_debut, CCjour_fin, CCheure_fin, CCetat)
+        VALUES (jour_debut, heure_debut, jour_fin, heure_fin, 'Ouvert');
+
 
         -- Mettre à jour le statut de l'utilisateur
         UPDATE Utilisateur
@@ -349,8 +363,8 @@ BEGIN
             HAVING 
                 COUNT(CASE WHEN R.Rstatut = 'Annule' THEN 1 END) > 10 -- Plus de 10 annulations
                 OR COUNT(R.Bid) > 50 -- Plus de 50 réservations
-                OR AVG(EXTRACT(EPOCH FROM (R.Rdate_heure_fin - R.Rdate_heure_debut))) / 3600 < 1 -- Durée moyenne < 1 heure
-                OR MAX(R.Rdate_heure_debut) - MIN(R.Rdate_heure_debut) < INTERVAL '1 day' -- Réservations concentrées sur une journée
+                OR (jour_dernier_reservation - jour_premiere_reservation) * 24 + (heure_dernier_reservation - heure_premiere_reservation) < 1 -- Durée moyenne < 1 heure
+                OR MAX(R.Rjour_fin * 24 + R.Rheure_fin) - MIN(R.Rjour_debut * 24 + R.Rdate_heure_debut) < INTERVAL '1 day' -- Réservations concentrées sur une journée
         );
 
         -- Si tout se passe bien, valider la transaction
@@ -369,8 +383,10 @@ $$ LANGUAGE plpgsql;
 CREATE OR REPLACE FUNCTION gerer_reservation_automatique(
     user_email VARCHAR(255),
     billet_id TEXT,
-    date_debut TIMESTAMP,
-    date_fin TIMESTAMP
+    jour_dernier_reservation INT,
+    heure_dernier_reservation INT,
+    jour_premiere_reservation INT,
+    heure_premiere_reservation INT
 )
 RETURNS BOOLEAN AS $$
 DECLARE
@@ -409,8 +425,8 @@ BEGIN
         -- Vérifier la charge système (limiter à 100 connexions simultanées)
         SELECT max_connexions INTO max_connexions
         FROM CreneauConnexion
-        WHERE CCdate_heure_debut <= CURRENT_TIMESTAMP
-          AND CCdate_heure_fin >= CURRENT_TIMESTAMP;
+        WHERE jour_debut * 24 + heure_debut <= (SELECT jour * 24 + heure FROM TEMPS LIMIT 1)
+            AND jour_fin * 24 + heure_fin >= (SELECT jour * 24 + heure FROM TEMPS LIMIT 1);
 
         IF max_connexions IS NULL THEN
             max_connexions := 100; -- Valeur par défaut si aucune connexion active
@@ -424,7 +440,7 @@ BEGIN
         SELECT COUNT(*) INTO connexions_utilisateur
         FROM CreneauConnexion
         WHERE Uemail = user_email
-          AND CCdate_heure_fin > CURRENT_TIMESTAMP;
+            AND jour_fin * 24 + heure_fin > (SELECT jour * 24 + heure FROM TEMPS LIMIT 1);
 
         IF connexions_utilisateur >= 3 THEN
             RAISE EXCEPTION 'Utilisateur % a atteint la limite de connexions actives.', user_email;
@@ -439,8 +455,8 @@ BEGIN
         END IF;
 
         -- Insérer le créneau de connexion
-        INSERT INTO CreneauConnexion (CCdate_heure_debut, CCdate_heure_fin, CCetat)
-        VALUES (date_debut, date_fin, 'Ouvert');
+        INSERT INTO CreneauConnexion (CCjour_debut, CCheure_debut, CCjour_fin, CCheure_fin, CCetat)
+        VALUES (jour_debut, heure_debut, jour_fin, heure_fin, 'Ouvert');
 
         -- Mettre à jour la disponibilité du billet
         UPDATE Billet
@@ -448,8 +464,8 @@ BEGIN
         WHERE Bid = billet_id;
 
         -- Insertion de la pré-réservation
-        INSERT INTO Reservation (Uemail, Bid, Rdate_heure_debut, Rdate_heure_fin, Rstatut)
-        VALUES (user_email, billet_id, date_debut, date_fin, 'Pre-reserve');
+        INSERT INTO Reservation (Uemail, Bid, Rjour_debut, Rheure_debut, Rjour_fin, Rheure_fin, Rstatut)
+        VALUES (user_email, billet_id, jour_premiere_reservation, heure_premiere_reservation, jour_dernier_reservation, heure_dernier_reservation, 'Pre-reserve');
 
         -- Vérifier les comportements suspects et mettre à jour Ususpect
         UPDATE Utilisateur
@@ -462,8 +478,8 @@ BEGIN
             HAVING 
                 COUNT(CASE WHEN R.Rstatut = 'Annule' THEN 1 END) > 10 -- Plus de 10 annulations
                 OR COUNT(R.Bid) > 50 -- Plus de 50 réservations
-                OR AVG(EXTRACT(EPOCH FROM (R.Rdate_heure_fin - R.Rdate_heure_debut))) / 3600 < 1 -- Durée moyenne < 1 heure
-                OR MAX(R.Rdate_heure_debut) - MIN(R.Rdate_heure_debut) < INTERVAL '1 day' -- Réservations concentrées sur une journée
+                OR (jour_dernier_reservation - jour_premiere_reservation) * 24 + (heure_dernier_reservation - heure_premiere_reservation) < 1 -- Durée moyenne < 1 heure
+                OR MAX(R.Rjour_fin * 24 + R.Rheure_fin) - MIN(R.Rjour_debut * 24 + R.Rdate_heure_debut) < INTERVAL '1 day' -- Réservations concentrées sur une journée
         );
 
         -- Si tout se passe bien, valider la transaction
@@ -476,5 +492,29 @@ BEGIN
             ROLLBACK;
             RAISE;
     END;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Ajouter un evenement à un établissement
+CREATE OR REPLACE FUNCTION inserer_evenement(
+    nom_complet TEXT,
+    nom_film VARCHAR,
+    jour_debut INT,
+    heure_debut INT,
+    num_salle INT,
+    Edescription TEXT,
+    type_evenement VARCHAR,
+    ETAadresse VARCHAR,
+    ETAnom VARCHAR
+)
+RETURNS VOID AS $$
+BEGIN
+    -- Insertion de l'événement dans la table Evenement
+    INSERT INTO Evenement (Eid, Enom, Ejour, Eheure, Enum_salle, Edescription, Etype)
+    VALUES (nom_complet, nom_film, jour_debut, heure_debut, num_salle, Edescription, type_evenement);
+
+    -- Insertion de la relation entre l'événement et l'établissement
+    INSERT INTO EvenementEtablissement (Eid, ETAadresse, ETAnom)
+    VALUES (nom_complet, ETAadresse, ETAnom);
 END;
 $$ LANGUAGE plpgsql;
