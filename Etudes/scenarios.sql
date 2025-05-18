@@ -1,44 +1,3 @@
--- Fonction pour récupérer les événements disponibles pour un utilisateur
-CREATE OR REPLACE FUNCTION recuperer_evenements_disponibles(
-    user_email VARCHAR(255)
-)
-RETURNS TABLE (
-    evenement_id TEXT,
-    nom_evenement VARCHAR(255),
-    jour_evenement INT,
-    heure_evenement INT,
-    description_evenement TEXT,
-    type_evenement VARCHAR(32)
-) AS $$
-BEGIN
-    RETURN QUERY
-    SELECT
-        E.nom_complet AS evenement_id,
-        E.Enom AS nom_evenement,
-        E.Ejour AS jour_evenement,
-        E.Eheure AS heure_evenement,
-        E.Edescription AS description_evenement,
-        E.Etype AS type_evenement
-    FROM Evenement E
-    JOIN CategorieEvenement CE ON E.Enom_complet = CE.Enom_complet 
-        AND E.Ejour = CE.Ejour
-        AND E.Eheure = CE.Eheure
-        AND E.Enum_salle = CE.Enum_salle
-    JOIN Categorie C ON CE.CATnom = C.CATnom
-    JOIN Utilisateur U ON U.Uemail = user_email
-    WHERE U.Ustatut IN ('Normal', 'VIP', 'VVIP') -- Filtrage par statut
-      AND C.CATprix <= (
-          CASE 
-              WHEN U.Ustatut = 'Normal' THEN 50
-              WHEN U.Ustatut = 'VIP' THEN 100
-              WHEN U.Ustatut = 'VVIP' THEN 200
-          END
-      )
-      AND E.Etype IN ('Concert', 'SousEvenement') -- Préférences utilisateur
-    ORDER BY E.Ejour, E.Eheure; -- Trier par date
-END;
-$$ LANGUAGE plpgsql;
-
 -- Fonction pour pré-réserver un billet
 -- Cette fonction vérifie la disponibilité du billet et l'associe à l'utilisateur
 -- en mettant à jour la table Billet et en insérant une nouvelle réservation
@@ -148,6 +107,11 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+
+-- Fonction pour réserver un billet
+-- Cette fonction vérifie la disponibilité du billet et l'associe à l'utilisateur
+-- en mettant à jour la table Billet et en insérant une nouvelle réservation
+-- dans la table Reservation.
 CREATE OR REPLACE FUNCTION reserver_billet(
     user_email VARCHAR(255),
     billet_id TEXT,
@@ -212,7 +176,7 @@ BEGIN
     FROM Reservation
     WHERE Uemail = user_email
       AND Bid = billet_id
-      AND Rstatut = 'Reserve'
+      AND (Rstatut = 'Reserve' OR Rstatut = 'Pre-reserve')
     FOR UPDATE;
 
     -- Vérifier si la réservation existe
@@ -432,6 +396,8 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Ajouter un evenement à un établissement
+-- Cette fonction insère un événement dans la table Evenement et
+-- crée une relation entre l'événement et l'établissement dans la table EvenementEtablissement.
 CREATE OR REPLACE FUNCTION inserer_evenement(
     nom_complet TEXT,
     nom_film VARCHAR,
@@ -455,6 +421,8 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Ajouter un utilisateur
+-- Cette fonction insère un nouvel utilisateur dans la table Utilisateur.
 CREATE OR REPLACE FUNCTION inserer_utilisateur(
     email VARCHAR(255),
     nom VARCHAR(255),
@@ -469,6 +437,9 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Fonction pour gérer la connexion d'un utilisateur
+-- Cette fonction met à jour le statut de l'utilisateur à connecté
+-- et gère les créneaux de connexion.
 CREATE OR REPLACE FUNCTION connexion_utilisateur(
     user_email VARCHAR(255)
 )
@@ -492,6 +463,9 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Fonction pour gérer la déconnexion d'un utilisateur
+-- Cette fonction met à jour le statut de l'utilisateur à déconnecté
+-- et gère les créneaux de connexion.
 CREATE OR REPLACE FUNCTION deconnexion_utilisateur(
     user_email VARCHAR(255)
 )
@@ -555,6 +529,10 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Fonction pour gérer les événements privés
+-- Cette fonction insère un événement privé dans la table Evenement
+-- et crée une relation entre l'événement privé et le créneau de connexion
+-- dans la table CreneauConnexion.
 CREATE OR REPLACE FUNCTION evenement_prive(
     nom_complet TEXT,
     jour INT,

@@ -82,16 +82,6 @@ CREATE TABLE Echange (
     PRIMARY KEY (Uemail_emetteur, Uemail_destinataire, Ejour, Eheure, Bid)
 );
 
-CREATE TABLE Achat (
-    Uemail VARCHAR(255) NOT NULL,
-    Bid TEXT NOT NULL,
-    Ajour INT NOT NULL,
-    Aheure INT NOT NULL,
-    FOREIGN KEY (Uemail) REFERENCES Utilisateur(Uemail),
-    FOREIGN KEY (Bid) REFERENCES Billet(Bid),
-    PRIMARY KEY (Uemail, Bid)
-);
-
 CREATE TABLE Reservation (
     Uemail VARCHAR(255) NOT NULL,
     Bid TEXT NOT NULL,
