@@ -45,14 +45,14 @@ $$ LANGUAGE plpgsql;
 -- dans la table Reservation.
 CREATE OR REPLACE FUNCTION pre_reserver_billet(
     user_email VARCHAR(255),
-    billet_id TEXT,
-    jour INT,
-    heure INT
+    billet_id TEXT
 )
 RETURNS VOID AS $$
 DECLARE
     nb_max_billets INT;
     billet_disponible BOOLEAN;
+    jour INT;
+    heure INT;
 BEGIN
     -- Vérification de la disponibilité du billet
     SELECT Bdisponibilite INTO billet_disponible
@@ -87,6 +87,10 @@ BEGIN
     SET Bdisponibilite = FALSE
     WHERE Bid = billet_id;
 
+    -- Récupérer le jour et l'heure actuels
+    SELECT jour, heure INTO jour, heure
+    FROM TEMPS LIMIT 1;
+
     -- Insertion de la pré-réservation
     INSERT INTO Reservation (Uemail, Bid, Rjour_debut, Rheure_debut, Rstatut)
     VALUES (user_email, billet_id, jour, heure, 'Pre-reserve');
@@ -105,7 +109,8 @@ DECLARE
     prix_achat DECIMAL(10, 2);
     billet_disponible BOOLEAN;
 BEGIN
-    -- Verrouiller la réservation
+
+    -- Vérifier si l'utilisateur a une réservation en attente
     PERFORM 1
     FROM Reservation
     WHERE Uemail = user_email
@@ -117,7 +122,7 @@ BEGIN
         RAISE EXCEPTION 'Aucune réservation trouvée pour le billet %', billet_id;
     END IF;
 
-    -- Verrouiller le billet
+    -- Vérification de la disponibilité du billet
     SELECT Bdisponibilite INTO billet_disponible
     FROM Billet
     WHERE Bid = billet_id
@@ -143,6 +148,53 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+CREATE OR REPLACE FUNCTION reserver_billet(
+    user_email VARCHAR(255),
+    billet_id TEXT,
+    jour INT,
+    heure INT
+)
+RETURNS VOID AS $$
+DECLARE
+    nb_max_billets INT;
+    billet_disponible BOOLEAN;
+BEGIN
+    -- Vérification de la disponibilité du billet
+    SELECT Bdisponibilite INTO billet_disponible
+    FROM Billet
+    WHERE Bid = billet_id
+    FOR UPDATE;
+
+    IF NOT billet_disponible THEN
+        RAISE EXCEPTION 'Le billet % n''est pas disponible', billet_id;
+    END IF;
+
+    -- Avoir le nombre maximum de billets autorisés pour l'utilisateur
+    SELECT Unb_max_billets INTO nb_max_billets
+    FROM Utilisateur
+    WHERE Uemail = user_email;
+
+    -- Vérifier si l'utilisateur existe
+    IF nb_max_billets IS NULL THEN
+        RAISE EXCEPTION 'Utilisateur % non trouvé', user_email;
+    END IF;
+
+    -- Mettre à jour la disponibilité du billet
+    UPDATE Billet
+    SET Bdisponibilite = FALSE
+    WHERE Bid = billet_id;
+
+    -- Insertion de la réservation
+    INSERT INTO Reservation (Uemail, Bid, Rjour_debut, Rheure_debut, Rstatut)
+    VALUES (user_email, billet_id, jour, heure, 'Reserve');
+    -- Mettre à jour le prix d'achat du billet
+    UPDATE Billet
+    SET Bprix_achat = Bprix_initial,
+        Bdisponibilite = FALSE
+    WHERE Bid = billet_id;
+END;
+$$ LANGUAGE plpgsql;
+
 -- Fonction pour annuler une réservation
 -- Cette fonction met à jour le statut de la réservation et remet le billet
 -- à la disponibilité.
@@ -154,19 +206,20 @@ RETURNS VOID AS $$
 DECLARE
     billet_disponible BOOLEAN;
 BEGIN
-    -- Verrouiller la réservation
+
+    -- Vérifier si l'utilisateur a une réservation en attente
     PERFORM 1
     FROM Reservation
     WHERE Uemail = user_email
       AND Bid = billet_id
-      AND Rstatut = 'Pre-reserve'
+      AND Rstatut = 'Reserve'
     FOR UPDATE;
 
+    -- Vérifier si la réservation existe
     IF NOT FOUND THEN
         RAISE EXCEPTION 'Aucune réservation trouvée pour le billet %', billet_id;
     END IF;
 
-    -- Verrouiller le billet
     SELECT Bdisponibilite INTO billet_disponible
     FROM Billet
     WHERE Bid = billet_id
@@ -185,67 +238,32 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Fonction pour vérifier les comportements suspects des utilisateurs
--- Cette fonction met à jour la colonne Ususpect dans la table Utilisateur
--- et retourne une liste des utilisateurs suspects avec leurs statistiques.
--- Les critères de suspicion incluent :
--- - Plus de 10 annulations
--- - Plus de 50 réservations
--- - Durée moyenne de réservation inférieure à 1 heure
--- - Réservations concentrées sur une journée
-CREATE OR REPLACE FUNCTION verifier_comportements_suspects()
+-- Fonction pour récupérer les utilisateurs suspects
+-- Cette fonction retourne les utilisateurs qui ont un nombre de réservations
+-- supérieur ou égal à un seuil donné.
+CREATE OR REPLACE FUNCTION utilisateurs_suspects_reservations(
+    seuil_reservations INT DEFAULT 3
+)
 RETURNS TABLE (
-    utilisateur_email VARCHAR(255),
-    nombre_reservations INT,
-    nombre_annulations INT,
-    nombre_pre_reservations INT,
-    nombre_confirmations INT,
-    duree_moyenne_reservation_heures DECIMAL(10, 2),
-    jour_dernier_reservation INT,
-    heure_dernier_reservation INT,
-    jour_premiere_reservation INT,
-    heure_premiere_reservation INT
+    Uemail VARCHAR,
+    nb_reservations INT,
+    Rjour_debut INT,
+    Rheure_debut INT
 ) AS $$
 BEGIN
-    -- Mettre à jour la colonne Ususpect pour les utilisateurs suspects
-    UPDATE Utilisateur
-    SET Ususpect = TRUE
-    WHERE Uemail IN (
-        SELECT U.Uemail
-        FROM Utilisateur U
-        JOIN Reservation R ON U.Uemail = R.Uemail
-        GROUP BY U.Uemail
-        HAVING 
-            COUNT(CASE WHEN R.Rstatut = 'Annule' THEN 1 END) > 10 -- Plus de 10 annulations
-            OR COUNT(R.Bid) > 50 -- Plus de 50 réservations
-            OR (jour_dernier_reservation - jour_premiere_reservation) * 24 + (heure_dernier_reservation - heure_premiere_reservation) < 1 -- Durée moyenne < 1 heure
-            OR MAX(R.Rjour_fin * 24 + R.Rheure_fin) - MIN(R.Rjour_debut * 24 + R.Rdate_heure_debut) < INTERVAL '1 day' -- Réservations concentrées sur une journée
-    );
-
-    -- Retourner la liste des utilisateurs suspects avec leurs statistiques
     RETURN QUERY
-    SELECT 
-        U.Uemail AS utilisateur_email,
-        COUNT(R.Bid) AS nombre_reservations,
-        COUNT(CASE WHEN R.Rstatut = 'Annule' THEN 1 END) AS nombre_annulations,
-        COUNT(CASE WHEN R.Rstatut = 'Pre-reserve' THEN 1 END) AS nombre_pre_reservations,
-        COUNT(CASE WHEN R.Rstatut = 'Confirme' THEN 1 END) AS nombre_confirmations,
-        (jour_dernier_reservation - jour_premiere_reservation) * 24 + (heure_dernier_reservation - heure_premiere_reservation) AS duree_moyenne_reservation_heures,
-        MAX(R.Rjour_debut) AS jour_dernier_reservation,
-        MAX(R.Rheure_debut) AS heure_dernier_reservation,
-        MIN(R.Rjour_debut) AS jour_premiere_reservation,
-        MIN(R.Rheure_debut) AS heure_premiere_reservation
-    FROM Reservation R
-    JOIN Utilisateur U ON R.Uemail = U.Uemail
-    GROUP BY U.Uemail
-    HAVING 
-        COUNT(CASE WHEN R.Rstatut = 'Annule' THEN 1 END) > 10 -- Plus de 10 annulations
-        OR COUNT(R.Bid) > 50 -- Plus de 50 réservations
-        OR (jour_dernier_reservation - jour_premiere_reservation) * 24 + (heure_dernier_reservation - heure_premiere_reservation) < 1 -- Durée moyenne < 1 heure
-        OR MAX(R.Rjour_fin * 24 + R.Rheure_fin) - MIN(R.Rjour_debut * 24 + R.Rdate_heure_debut) < INTERVAL '1 day'; -- Réservations concentrées sur une journée
+    SELECT
+        Reservation.Uemail,
+        COUNT(*)::INT AS nb_reservations,
+        Reservation.Rjour_debut,
+        Reservation.Rheure_debut
+    FROM Reservation
+    GROUP BY Reservation.Uemail, Reservation.Rjour_debut, Reservation.Rheure_debut
+    HAVING COUNT(*) >= seuil_reservations;
 END;
 $$ LANGUAGE plpgsql;
 
+-- Fonction pour gérer les créneaux de connexion
 CREATE OR REPLACE FUNCTION gerer_creneau_connexion(
     user_email VARCHAR(255)
 )
@@ -274,7 +292,7 @@ BEGIN
     SELECT COALESCE(SUM(max_connexions), 0) INTO max_server_connexions
     FROM CreneauConnexion
     WHERE CCjour_debut = jour
-      AND CCheure_debut = heure;
+      AND CCheure_debut = heure
       AND (CCetat = 'Ouvert' OR CCetat = 'En attente');
 
 
@@ -525,11 +543,11 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Fonction pour générer un ID de billet unique
-CREATE FUNCTION generer_id_evenement(
+CREATE OR REPLACE FUNCTION generer_id_evenement(
     nom_complet TEXT,
     jour INT,
     heure INT,
-    num_salle INT,
+    num_salle INT
 ) 
 RETURNS TEXT AS $$
 BEGIN
@@ -567,11 +585,7 @@ BEGIN
 
     evenement_id := generer_id_evenement(nom_complet, jour, heure, num_salle);
 
-    INSERT INTO CreneauConnexion (CCjour_debut, CCheure_debut, CCetat, 50)
+    INSERT INTO CreneauConnexion (CCjour_debut, CCheure_debut, CCetat, CCmax_connexions)
     VALUES (jour_reservation, heure_reservation, evenement_id, 50);
-
-
-    
-
 END;
 $$ LANGUAGE plpgsql;
