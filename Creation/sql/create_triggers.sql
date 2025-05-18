@@ -157,7 +157,7 @@ FOR EACH ROW
 EXECUTE PROCEDURE inserer_categorie_billet();
 
 
-CREATE FUNCTION verifier_categorie_evenement()
+CREATE OR REPLACE FUNCTION verifier_categorie_evenement()
 RETURNS TRIGGER AS $$
 DECLARE
     CATlist TEXT[];
@@ -183,3 +183,68 @@ CREATE TRIGGER lien_categorie_evenement
 AFTER INSERT ON Evenement
 FOR EACH ROW
 EXECUTE PROCEDURE verifier_categorie_evenement();
+
+
+-- Trigger pour gérer la suppression des événements et billets
+CREATE OR REPLACE FUNCTION check_after_timer_update()
+RETURNS TRIGGER AS $$
+DECLARE
+    evenement_rec RECORD;
+    billet_rec RECORD;
+BEGIN
+
+    UPDATE Utilisateur SET Uconnecte = FALSE WHERE Uconnecte = TRUE;
+
+    -- DELETE FROM CreneauConnexion
+    -- WHERE (jour < NEW.jour)
+    --     OR (jour = NEW.jour AND heure < NEW.heure);
+
+    FOR evenement_rec IN
+        SELECT Eid FROM Evenement
+        WHERE 
+            (Ejour < NEW.jour)
+            OR (
+                (Ejour = NEW.jour)
+                AND (Eheure < NEW.heure)
+            )
+    LOOP
+        DELETE FROM CategorieEvenement WHERE Eid = evenement_rec.Eid;
+        DELETE FROM EvenementEtablissement WHERE Eid = evenement_rec.Eid;
+        DELETE FROM Evenement WHERE Eid = evenement_rec.Eid;
+    END LOOP;
+
+    -- DELETE FROM Reservation
+    -- WHERE (Rjour < NEW.jour)
+    --     OR (Rjour = NEW.jour AND Rheure < NEW.heure);
+
+    -- DELETE FROM CreneauConnexionUtilisateur
+    -- WHERE (CCjour_debut < NEW.jour)
+    --     OR (CCjour_debut = NEW.jour AND CCheure_debut < NEW.heure);
+    
+    -- DELETE FROM CreneauConnexionBillet
+    -- WHERE (CCjour_debut < NEW.jour)
+    --     OR (CCjour_debut = NEW.jour AND CCheure_debut < NEW.heure);
+
+    FOR billet_rec IN
+        SELECT Bid FROM Billet
+        WHERE 
+            (split_part(Bid, '-', 3)::int) < NEW.jour
+            OR (
+                (split_part(Bid, '-', 3)::int) = NEW.jour
+                AND (split_part(Bid, '-', 4)::int) < NEW.heure
+            )
+    LOOP
+        DELETE FROM Achat WHERE Bid = billet_rec.Bid;
+        DELETE FROM Echange WHERE Bid = billet_rec.Bid;
+        DELETE FROM CategorieBillet WHERE Bid = billet_rec.Bid;
+        DELETE FROM Billet WHERE Bid = billet_rec.Bid;
+    END LOOP;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER check_after_timer
+AFTER UPDATE ON TEMPS
+FOR EACH ROW
+EXECUTE PROCEDURE check_after_timer_update();

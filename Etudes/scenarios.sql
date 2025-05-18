@@ -12,7 +12,7 @@ RETURNS TABLE (
 ) AS $$
 BEGIN
     RETURN QUERY
-    SELECT 
+    SELECT
         E.Eid AS evenement_id,
         E.Enom AS nom_evenement,
         E.Ejour AS jour_evenement,
@@ -226,8 +226,8 @@ CREATE OR REPLACE FUNCTION gerer_creneau_connexion(
     user_email VARCHAR(255),
     jour_debut INT,
     heure_debut INT,
-    jour_fin INT,
-    heure_fin INT
+    jour INT,
+    heure INT
 )
 RETURNS BOOLEAN AS $$
 DECLARE
@@ -236,6 +236,9 @@ DECLARE
     max_connexions INT;
     connexions_utilisateur INT;
 BEGIN
+    SELECT jour, heure INTO jour, heure
+    FROM TEMPS LIMIT 1;
+
     -- Récupérer le statut de l'utilisateur
     SELECT Ustatut INTO statut_utilisateur
     FROM Utilisateur
@@ -275,8 +278,8 @@ BEGIN
     END IF;
 
     -- Insérer le créneau de connexion
-    INSERT INTO CreneauConnexion (CCjour_debut, CCheure_debut, CCjour_fin, CCheure_fin, CCetat)
-    VALUES (jour_debut, heure_debut, jour_fin, heure_fin, 'Ouvert');
+    INSERT INTO CreneauConnexion (CCjour_debut, CCheure_debut, CCetat)
+    VALUES (jour_debut, heure_debut 'Ouvert');
 
     -- Mettre à jour le statut de l'utilisateur
     UPDATE Utilisateur
@@ -343,8 +346,8 @@ BEGIN
         END IF;
 
         -- Insérer le créneau de connexion
-        INSERT INTO CreneauConnexion (CCjour_debut, CCheure_debut, CCjour_fin, CCheure_fin, CCetat)
-        VALUES (jour_debut, heure_debut, jour_fin, heure_fin, 'Ouvert');
+        INSERT INTO CreneauConnexion (CCjour_debut, CCheure_debut, CCetat)
+        VALUES (jour_debut, heure_debut, 'Ouvert');
 
 
         -- Mettre à jour le statut de l'utilisateur
@@ -455,8 +458,8 @@ BEGIN
         END IF;
 
         -- Insérer le créneau de connexion
-        INSERT INTO CreneauConnexion (CCjour_debut, CCheure_debut, CCjour_fin, CCheure_fin, CCetat)
-        VALUES (jour_debut, heure_debut, jour_fin, heure_fin, 'Ouvert');
+        INSERT INTO CreneauConnexion (CCjour_debut, CCheure_debut, CCetat)
+        VALUES (jour_debut, heure_debut, 'Ouvert');
 
         -- Mettre à jour la disponibilité du billet
         UPDATE Billet
@@ -464,8 +467,8 @@ BEGIN
         WHERE Bid = billet_id;
 
         -- Insertion de la pré-réservation
-        INSERT INTO Reservation (Uemail, Bid, Rjour_debut, Rheure_debut, Rjour_fin, Rheure_fin, Rstatut)
-        VALUES (user_email, billet_id, jour_premiere_reservation, heure_premiere_reservation, jour_dernier_reservation, heure_dernier_reservation, 'Pre-reserve');
+        INSERT INTO Reservation (Uemail, Bid, Rjour_debut, Rheure_debut, Rstatut)
+        VALUES (user_email, billet_id, jour_premiere_reservation, heure_premiere_reservation, 'Pre-reserve');
 
         -- Vérifier les comportements suspects et mettre à jour Ususpect
         UPDATE Utilisateur

@@ -14,14 +14,11 @@ CREATE TABLE Utilisateur (
 CREATE TABLE CreneauConnexion (
     CCjour_debut INT NOT NULL,
     CCheure_debut INT NOT NULL,
-    CCjour_fin INT NOT NULL,
-    CCheure_fin INT NOT NULL,
     CCetat VARCHAR(255) NOT NULL,
     CCmax_connexions INT NOT NULL,
-    PRIMARY KEY (CCjour_debut, CCheure_debut, CCjour_fin, CCheure_fin),
+    PRIMARY KEY (CCjour_debut, CCheure_debut),
     CHECK (CCetat IN ('Ouvert', 'Ferme', 'En attente')),
-    CHECK (CCjour_debut > 0 AND CCjour_fin > 0),
-    CHECK (CCjour_fin > CCjour_debut OR (CCjour_fin = CCjour_debut AND CCheure_fin > CCheure_debut))
+    CHECK (CCjour_debut >= 0 AND CCheure_debut >= 0)
 );
 
 CREATE TABLE Billet (
@@ -76,11 +73,13 @@ CREATE TABLE Evenement (
 CREATE TABLE Echange (
     Uemail_emetteur VARCHAR(255) NOT NULL,
     Uemail_destinataire VARCHAR(255) NOT NULL,
+    Bid TEXT NOT NULL,
     Ejour INT NOT NULL,
     Eheure INT NOT NULL,
     FOREIGN KEY (Uemail_emetteur) REFERENCES Utilisateur(Uemail),
     FOREIGN KEY (Uemail_destinataire) REFERENCES Utilisateur(Uemail),
-    PRIMARY KEY (Uemail_emetteur, Uemail_destinataire, Ejour, Eheure)
+    FOREIGN KEY (Bid) REFERENCES Billet(Bid),
+    PRIMARY KEY (Uemail_emetteur, Uemail_destinataire, Ejour, Eheure, Bid)
 );
 
 CREATE TABLE Achat (
@@ -98,23 +97,19 @@ CREATE TABLE Reservation (
     Bid TEXT NOT NULL,
     Rjour_debut INT NOT NULL,
     Rheure_debut INT NOT NULL,
-    Rjour_fin INT NOT NULL,
-    Rheure_fin INT NOT NULL,
     Rstatut VARCHAR(255) NOT NULL,
     FOREIGN KEY (Uemail) REFERENCES Utilisateur(Uemail),
     FOREIGN KEY (Bid) REFERENCES Billet(Bid),
     PRIMARY KEY (Uemail, Bid),
-    CHECK (Rstatut IN ('Pré-réservé', 'Réservé', 'Annulé', 'Confirmé'))
+    CHECK (Rstatut IN ('Pre-reserve', 'Reserve', 'Annule', 'Confirme'))
 );
 
 CREATE TABLE CreneauConnexionUtilisateur (
     CCjour_debut INT NOT NULL,
     CCheure_debut INT NOT NULL,
-    CCjour_fin INT NOT NULL,
-    CCheure_fin INT NOT NULL,
     Uemail VARCHAR(255) NOT NULL,
     Bid TEXT NOT NULL,
-    FOREIGN KEY (CCjour_debut, CCheure_debut, CCjour_fin, CCheure_fin) REFERENCES CreneauConnexion(CCjour_debut, CCheure_debut, CCjour_fin, CCheure_fin),
+    FOREIGN KEY (CCjour_debut, CCheure_debut) REFERENCES CreneauConnexion(CCjour_debut, CCheure_debut),
     FOREIGN KEY (Uemail) REFERENCES Utilisateur(Uemail),
     FOREIGN KEY (Bid) REFERENCES Billet(Bid),
     PRIMARY KEY (CCjour_debut, CCheure_debut, Uemail, Bid)
@@ -123,10 +118,8 @@ CREATE TABLE CreneauConnexionUtilisateur (
 CREATE TABLE CreneauConnexionBillet (
     CCjour_debut INT NOT NULL,
     CCheure_debut INT NOT NULL,
-    CCjour_fin INT NOT NULL,
-    CCheure_fin INT NOT NULL,
     Bid TEXT NOT NULL,
-    FOREIGN KEY (CCjour_debut, CCheure_debut, CCjour_fin, CCheure_fin) REFERENCES CreneauConnexion(CCjour_debut, CCheure_debut, CCjour_fin, CCheure_fin),
+    FOREIGN KEY (CCjour_debut, CCheure_debut) REFERENCES CreneauConnexion(CCjour_debut, CCheure_debut),
     FOREIGN KEY (Bid) REFERENCES Billet(Bid),
     PRIMARY KEY (CCjour_debut, CCheure_debut, Bid)
 );

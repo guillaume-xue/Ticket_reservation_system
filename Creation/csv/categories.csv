@@ -1,8 +1,8 @@
 CATnom,CATprix,CATnb_place
-UniqueVIP,50.00,2
-Unique,20.00,8
-Carre Or,50.00,1
-Cat1,45.00,2
-Cat2,40.00,2
-Cat3,35.00,2
-Cat4,30.00,3
+UniqueVIP,50.00,10
+Unique,20.00,100
+Carre Or,50.00,10
+Cat1,45.00,25
+Cat2,40.00,50
+Cat3,35.00,75
+Cat4,30.00,100
