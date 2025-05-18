@@ -521,3 +521,100 @@ BEGIN
     VALUES (nom_complet, ETAadresse, ETAnom);
 END;
 $$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION inserer_utilisateur(
+    email VARCHAR(255),
+    nom VARCHAR(255),
+    prenom VARCHAR(255),
+    statut VARCHAR(32)
+)
+RETURNS VOID AS $$
+BEGIN
+    -- Insertion de l'utilisateur dans la table Utilisateur
+    INSERT INTO Utilisateur (Uemail, Unom, Uprenom, Ustatut, Uconnecte, Ususpect)
+    VALUES (email, nom, prenom, statut, FALSE, FALSE);
+END;
+$$ LANGUAGE plpgsql;
+
+
+-- fonction pour initialiser la table TEMPS
+CREATE OR REPLACE FUNCTION initialiser_temps()
+RETURNS VOID AS $$
+BEGIN
+    -- Insérer une ligne initiale dans la table TEMPS
+    INSERT INTO TEMPS (jour, heure)
+    VALUES (0, 1);
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION connexion_utilisateur(
+    user_email VARCHAR(255)
+)
+RETURNS VOID AS $$
+BEGIN
+    -- Vérifier si l'utilisateur existe
+    IF NOT EXISTS (
+        SELECT 1
+        FROM Utilisateur
+        WHERE Uemail = user_email
+    ) THEN
+        RAISE EXCEPTION 'Utilisateur % non trouvé', user_email;
+    END IF;
+
+    -- Mettre à jour le statut de l'utilisateur à connecté
+    UPDATE Utilisateur
+    SET Uconnecte = TRUE
+    WHERE Uemail = user_email;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION deconnexion_utilisateur(
+    user_email VARCHAR(255)
+)
+RETURNS VOID AS $$
+BEGIN
+    -- Vérifier si l'utilisateur existe
+    IF NOT EXISTS (
+        SELECT 1
+        FROM Utilisateur
+        WHERE Uemail = user_email
+    ) THEN
+        RAISE EXCEPTION 'Utilisateur % non trouvé', user_email;
+    END IF;
+
+    -- Mettre à jour le statut de l'utilisateur à déconnecté
+    UPDATE Utilisateur
+    SET Uconnecte = FALSE
+    WHERE Uemail = user_email;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Fonction pour incrémenter le jour dans la table TEMPS
+CREATE OR REPLACE FUNCTION increment_temps_jour()
+RETURNS VOID AS $$
+BEGIN
+    -- Incrémenter le jour de 1
+    UPDATE TEMPS
+    SET jour = jour + 1;
+
+    -- Réinitialiser l'heure à 0
+    UPDATE TEMPS
+    SET heure = 0;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Fonction pour incrémenter l'heure dans la table TEMPS
+CREATE OR REPLACE FUNCTION increment_temps_heure()
+RETURNS VOID AS $$
+BEGIN
+    -- Incrémenter l'heure de 1
+    UPDATE TEMPS
+    SET heure = heure + 1;
+
+    -- Si l'heure atteint 24, incrémenter le jour de 1 et réinitialiser l'heure à 0
+    IF (SELECT heure FROM TEMPS) >= 24 THEN
+        PERFORM increment_temps_jour();
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+
