@@ -536,17 +536,6 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-
--- fonction pour initialiser la table TEMPS
-CREATE OR REPLACE FUNCTION initialiser_temps()
-RETURNS VOID AS $$
-BEGIN
-    -- Insérer une ligne initiale dans la table TEMPS
-    INSERT INTO TEMPS (jour, heure)
-    VALUES (0, 1);
-END;
-$$ LANGUAGE plpgsql;
-
 CREATE OR REPLACE FUNCTION connexion_utilisateur(
     user_email VARCHAR(255)
 )
