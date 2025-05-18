@@ -46,10 +46,8 @@ $$ LANGUAGE plpgsql;
 CREATE OR REPLACE FUNCTION pre_reserver_billet(
     user_email VARCHAR(255),
     billet_id TEXT,
-    jour_debut INT,
-    heure_debut INT,
-    jour_fin INT,
-    heure_fin INT
+    jour INT,
+    heure INT
 )
 RETURNS VOID AS $$
 DECLARE
@@ -59,7 +57,8 @@ BEGIN
     -- Vérification de la disponibilité du billet
     SELECT Bdisponibilite INTO billet_disponible
     FROM Billet
-    WHERE Bid = billet_id;
+    WHERE Bid = billet_id
+    FOR UPDATE;
 
     IF NOT billet_disponible THEN
         RAISE EXCEPTION 'Le billet % n''est pas disponible', billet_id;
@@ -89,9 +88,8 @@ BEGIN
     WHERE Bid = billet_id;
 
     -- Insertion de la pré-réservation
-    INSERT INTO Reservation (Uemail, Bid, Rdate_heure_debut, Rdate_heure_fin,
-                             Rstatut)
-    VALUES (user_email, billet_id, jour_debut, heure_debut, jour_fin, heure_fin, 'Pre-reserve');
+    INSERT INTO Reservation (Uemail, Bid, Rjour_debut, Rheure_debut, Rstatut)
+    VALUES (user_email, billet_id, jour, heure, 'Pre-reserve');
 END;
 $$ LANGUAGE plpgsql;
 
@@ -100,33 +98,47 @@ $$ LANGUAGE plpgsql;
 -- dans la table Billet.
 CREATE OR REPLACE FUNCTION confirmer_reservation(
     user_email VARCHAR(255),
-    billet_id TEXT,
-    prix_achat DECIMAL(10, 2)
+    billet_id TEXT
 )
 RETURNS VOID AS $$
+DECLARE
+    prix_achat DECIMAL(10, 2);
+    billet_disponible BOOLEAN;
 BEGIN
-    -- Vérification de l'existence de la réservation
-    IF NOT EXISTS (
-        SELECT 1
-        FROM Reservation
-        WHERE Uemail = user_email
-          AND Bid = billet_id
-          AND Rstatut = 'Pre-reserve'
-    ) THEN
+    -- Verrouiller la réservation
+    PERFORM 1
+    FROM Reservation
+    WHERE Uemail = user_email
+      AND Bid = billet_id
+      AND Rstatut = 'Pre-reserve'
+    FOR UPDATE;
+
+    IF NOT FOUND THEN
         RAISE EXCEPTION 'Aucune réservation trouvée pour le billet %', billet_id;
     END IF;
 
+    -- Verrouiller le billet
+    SELECT Bdisponibilite INTO billet_disponible
+    FROM Billet
+    WHERE Bid = billet_id
+    FOR UPDATE;
+
     -- Mettre à jour le statut de la réservation et le prix d'achat
     UPDATE Reservation
-    SET Rstatut = 'Confirme',
-        Rprix_achat = prix_achat
+    SET Rstatut = 'Confirme'
     WHERE Uemail = user_email
       AND Bid = billet_id;
+
+    -- Récupérer le prix d'achat du billet
+    SELECT C.CATprix INTO prix_achat
+    FROM CategorieBillet CB
+    JOIN Categorie C ON CB.CATnom = C.CATnom
+    WHERE CB.Bid = billet_id;
 
     -- Mettre à jour le prix d'achat du billet
     UPDATE Billet
     SET Bprix_achat = prix_achat,
-        Bdisponibilite = TRUE -- Le billet est maintenant disponible après confirmation
+        Bdisponibilite = FALSE
     WHERE Bid = billet_id;
 END;
 $$ LANGUAGE plpgsql;
@@ -139,17 +151,26 @@ CREATE OR REPLACE FUNCTION annuler_reservation(
     billet_id TEXT
 )
 RETURNS VOID AS $$
+DECLARE
+    billet_disponible BOOLEAN;
 BEGIN
-    -- Vérification de l'existence de la réservation
-    IF NOT EXISTS (
-        SELECT 1
-        FROM Reservation
-        WHERE Uemail = user_email
-          AND Bid = billet_id
-          AND Rstatut = 'Pre-reserve'
-    ) THEN
+    -- Verrouiller la réservation
+    PERFORM 1
+    FROM Reservation
+    WHERE Uemail = user_email
+      AND Bid = billet_id
+      AND Rstatut = 'Pre-reserve'
+    FOR UPDATE;
+
+    IF NOT FOUND THEN
         RAISE EXCEPTION 'Aucune réservation trouvée pour le billet %', billet_id;
     END IF;
+
+    -- Verrouiller le billet
+    SELECT Bdisponibilite INTO billet_disponible
+    FROM Billet
+    WHERE Bid = billet_id
+    FOR UPDATE;
 
     -- Mettre à jour le statut de la réservation et remettre le billet à la disponibilité
     UPDATE Reservation
