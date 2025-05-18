@@ -169,3 +169,18 @@ CREATE TABLE TEMPS (
     jour INT NOT NULL,
     heure INT NOT NULL CHECK (heure >= 0 AND heure < 24)
 );
+
+-- Accélérer les recherches sur les réservations par date/heure
+CREATE INDEX idx_reservation_jour_heure ON Reservation (Rjour_debut, Rheure_debut);
+
+-- Accélérer les recherches sur les créneaux de connexion par date/heure
+CREATE INDEX idx_creneau_connexion_jour_heure ON CreneauConnexion (CCjour_debut, CCheure_debut);
+
+-- Accélérer les recherches sur les événements par nom complet et date
+CREATE INDEX idx_evenement_nom_date ON Evenement (Enom_complet, Ejour, Eheure);
+
+-- Accélérer les recherches sur les réservations par statut
+CREATE INDEX idx_reservation_email_billet_id ON Reservation (Uemail, Bid);
+
+-- Accélérer les recherches sur la disponibilité des billets
+CREATE INDEX idx_billet_disponibilite ON Billet (Bdisponibilite);

@@ -17,6 +17,7 @@ BEGIN
     SELECT Bdisponibilite INTO billet_disponible
     FROM Billet
     WHERE Bid = billet_id
+      AND Bdisponibilite = TRUE
     FOR UPDATE;
 
     IF NOT billet_disponible THEN
@@ -85,6 +86,7 @@ BEGIN
     SELECT Bdisponibilite INTO billet_disponible
     FROM Billet
     WHERE Bid = billet_id
+      AND Bdisponibilite = TRUE
     FOR UPDATE;
 
     -- Mettre à jour le statut de la réservation et le prix d'achat
@@ -127,6 +129,7 @@ BEGIN
     SELECT Bdisponibilite INTO billet_disponible
     FROM Billet
     WHERE Bid = billet_id
+      AND Bdisponibilite = TRUE
     FOR UPDATE;
 
     IF NOT billet_disponible THEN
@@ -243,15 +246,11 @@ BEGIN
     SELECT jour, heure INTO jour, heure
     FROM TEMPS LIMIT 1;
 
-    IF statut_utilisateur IS NULL THEN
-        RAISE EXCEPTION 'Utilisateur % non trouvé', user_email;
-    END IF;
-
-    -- Récupérer le nombre de connexions actives
+    -- Récupérer le nombre de connexions actives (utilise index sur (CCjour_debut, CCheure_debut))
     SELECT COUNT(*) INTO connexions_actuelles
     FROM CreneauConnexionUtilisateur
     WHERE CCjour_debut = jour
-    AND CCheure_debut = heure;
+      AND CCheure_debut = heure;
 
     SELECT COALESCE(SUM(max_connexions), 0) INTO max_server_connexions
     FROM CreneauConnexion
