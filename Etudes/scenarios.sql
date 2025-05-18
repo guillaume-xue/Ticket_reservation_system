@@ -13,14 +13,17 @@ RETURNS TABLE (
 BEGIN
     RETURN QUERY
     SELECT
-        E.Eid AS evenement_id,
+        E.nom_complet AS evenement_id,
         E.Enom AS nom_evenement,
         E.Ejour AS jour_evenement,
         E.Eheure AS heure_evenement,
         E.Edescription AS description_evenement,
         E.Etype AS type_evenement
     FROM Evenement E
-    JOIN CategorieEvenement CE ON E.Eid = CE.Eid
+    JOIN CategorieEvenement CE ON E.Enom_complet = CE.Enom_complet 
+        AND E.Ejour = CE.Ejour
+        AND E.Eheure = CE.Eheure
+        AND E.Enum_salle = CE.Enum_salle
     JOIN Categorie C ON CE.CATnom = C.CATnom
     JOIN Utilisateur U ON U.Uemail = user_email
     WHERE U.Ustatut IN ('Normal', 'VIP', 'VVIP') -- Filtrage par statut
@@ -223,26 +226,19 @@ END;
 $$ LANGUAGE plpgsql;
 
 CREATE OR REPLACE FUNCTION gerer_creneau_connexion(
-    user_email VARCHAR(255),
-    jour_debut INT,
-    heure_debut INT,
-    jour INT,
-    heure INT
+    user_email VARCHAR(255)
 )
-RETURNS BOOLEAN AS $$
+RETURNS VOID AS $$
 DECLARE
     statut_utilisateur VARCHAR(255);
     connexions_actuelles INT;
-    max_connexions INT;
-    connexions_utilisateur INT;
+    max_connexions_actif INT;
+    max_server_connexions INT;  
+    jour INT;
+    heure INT;
 BEGIN
     SELECT jour, heure INTO jour, heure
     FROM TEMPS LIMIT 1;
-
-    -- Récupérer le statut de l'utilisateur
-    SELECT Ustatut INTO statut_utilisateur
-    FROM Utilisateur
-    WHERE Uemail = user_email;
 
     IF statut_utilisateur IS NULL THEN
         RAISE EXCEPTION 'Utilisateur % non trouvé', user_email;
@@ -250,136 +246,34 @@ BEGIN
 
     -- Récupérer le nombre de connexions actives
     SELECT COUNT(*) INTO connexions_actuelles
-    FROM Utilisateur
-    WHERE Uconnecte = TRUE;
+    FROM CreneauConnexionUtilisateur
+    WHERE CCjour_debut = jour
+    AND CCheure_debut = heure;
 
-    -- Vérifier la charge système (limiter à 100 connexions simultanées)
-    SELECT max_connexions INTO max_connexions
+    SELECT COALESCE(SUM(max_connexions), 0) INTO max_server_connexions
     FROM CreneauConnexion
-    WHERE jour_debut * 24 + heure_debut <= (SELECT jour * 24 + heure FROM TEMPS LIMIT 1)
-    AND jour_fin * 24 + heure_fin >= (SELECT jour * 24 + heure FROM TEMPS LIMIT 1);
+    WHERE CCjour_debut = jour
+      AND CCheure_debut = heure;
+      AND (CCetat = 'Ouvert' OR CCetat = 'En attente');
 
-    IF max_connexions IS NULL THEN
-        max_connexions := 100; -- Valeur par défaut si aucune connexion active
-    END IF;
 
-    IF connexions_actuelles >= max_connexions THEN
-        RAISE EXCEPTION 'Charge système maximale atteinte. Veuillez réessayer plus tard.';
-    END IF;
-
-    -- Vérifier l'historique de l'utilisateur (limiter à 3 connexions actives)
-    SELECT COUNT(*) INTO connexions_utilisateur
+    SELECT max_connexions INTO max_connexions_actif
     FROM CreneauConnexion
-    WHERE Uemail = user_email
-      AND jour_fin * 24 + heure_fin > (SELECT jour * 24 + heure FROM TEMPS LIMIT 1);
+    WHERE CCjour_debut = jour
+      AND CCheure_debut = heure
+      AND CCetat = 'Ouvert';
 
-    IF connexions_utilisateur >= 3 THEN
-        RAISE EXCEPTION 'Utilisateur % a atteint la limite de connexions actives.', user_email;
+    IF connexions_actuelles >= max_server_connexions THEN
+        INSERT INTO CreneauConnexionUtilisateur (CCjour_debut, CCheure_debut, Uemail, CCetat)
+        VALUES (jour, heure, user_email, 'Ferme');
+        RAISE EXCEPTION 'Charge système maximale atteinte. Veuillez réessayer plus tard.'; 
+    ELSEIF connexions_actuelles >= max_connexions_actif THEN
+        INSERT INTO CreneauConnexionUtilisateur (CCjour_debut, CCheure_debut, Uemail, CCetat)
+        VALUES (jour, heure, user_email, 'En attente');
+    ELSE
+        INSERT INTO CreneauConnexionUtilisateur (CCjour_debut, CCheure_debut, Uemail, CCetat)
+        VALUES (jour, heure, user_email, 'Ouvert');
     END IF;
-
-    -- Insérer le créneau de connexion
-    INSERT INTO CreneauConnexion (CCjour_debut, CCheure_debut, CCetat)
-    VALUES (jour_debut, heure_debut 'Ouvert');
-
-    -- Mettre à jour le statut de l'utilisateur
-    UPDATE Utilisateur
-    SET Uconnecte = TRUE
-    WHERE Uemail = user_email;
-
-    RETURN TRUE;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE OR REPLACE FUNCTION gerer_connexion_et_verifier_suspects(
-    user_email VARCHAR(255),
-    jour_debut INT,
-    heure_debut INT,
-    jour_fin INT,
-    heure_fin INT
-)
-RETURNS BOOLEAN AS $$
-DECLARE
-    statut_utilisateur VARCHAR(255);
-    connexions_actuelles INT;
-    max_connexions INT;
-    connexions_utilisateur INT;
-BEGIN
-    -- Démarrer une transaction
-    BEGIN
-        -- Récupérer le statut de l'utilisateur
-        SELECT Ustatut INTO statut_utilisateur
-        FROM Utilisateur
-        WHERE Uemail = user_email;
-
-        IF statut_utilisateur IS NULL THEN
-            RAISE EXCEPTION 'Utilisateur % non trouvé', user_email;
-        END IF;
-
-        -- Récupérer le nombre de connexions actives
-        SELECT COUNT(*) INTO connexions_actuelles
-        FROM Utilisateur
-        WHERE Uconnecte = TRUE;
-
-        -- Vérifier la charge système (limiter à 100 connexions simultanées)
-        SELECT max_connexions INTO max_connexions
-        FROM CreneauConnexion
-        WHERE jour_debut * 24 + heure_debut <= (SELECT jour * 24 + heure FROM TEMPS LIMIT 1)
-        AND jour_fin * 24 + heure_fin >= (SELECT jour * 24 + heure FROM TEMPS LIMIT 1);
-
-        IF max_connexions IS NULL THEN
-            max_connexions := 100; -- Valeur par défaut si aucune connexion active
-        END IF;
-
-        IF connexions_actuelles >= max_connexions THEN
-            RAISE EXCEPTION 'Charge système maximale atteinte. Veuillez réessayer plus tard.';
-        END IF;
-
-        -- Vérifier l'historique de l'utilisateur (limiter à 3 connexions actives)
-        SELECT COUNT(*) INTO connexions_utilisateur
-        FROM CreneauConnexionUtilisateur
-        WHERE Uemail = user_email
-            AND jour_fin * 24 + heure_fin > (SELECT jour * 24 + heure FROM TEMPS LIMIT 1);
-
-
-        IF connexions_utilisateur >= 3 THEN
-            RAISE EXCEPTION 'Utilisateur % a atteint la limite de connexions actives.', user_email;
-        END IF;
-
-        -- Insérer le créneau de connexion
-        INSERT INTO CreneauConnexion (CCjour_debut, CCheure_debut, CCetat)
-        VALUES (jour_debut, heure_debut, 'Ouvert');
-
-
-        -- Mettre à jour le statut de l'utilisateur
-        UPDATE Utilisateur
-        SET Uconnecte = TRUE
-        WHERE Uemail = user_email;
-
-        -- Vérifier les comportements suspects et mettre à jour Ususpect
-        UPDATE Utilisateur
-        SET Ususpect = TRUE
-        WHERE Uemail IN (
-            SELECT U.Uemail
-            FROM Utilisateur U
-            JOIN Reservation R ON U.Uemail = R.Uemail
-            GROUP BY U.Uemail
-            HAVING 
-                COUNT(CASE WHEN R.Rstatut = 'Annule' THEN 1 END) > 10 -- Plus de 10 annulations
-                OR COUNT(R.Bid) > 50 -- Plus de 50 réservations
-                OR (jour_dernier_reservation - jour_premiere_reservation) * 24 + (heure_dernier_reservation - heure_premiere_reservation) < 1 -- Durée moyenne < 1 heure
-                OR MAX(R.Rjour_fin * 24 + R.Rheure_fin) - MIN(R.Rjour_debut * 24 + R.Rdate_heure_debut) < INTERVAL '1 day' -- Réservations concentrées sur une journée
-        );
-
-        -- Si tout se passe bien, valider la transaction
-        COMMIT;
-        RETURN TRUE;
-
-    EXCEPTION
-        WHEN OTHERS THEN
-            -- En cas d'erreur, annuler la transaction
-            ROLLBACK;
-            RAISE;
-    END;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -513,12 +407,12 @@ CREATE OR REPLACE FUNCTION inserer_evenement(
 RETURNS VOID AS $$
 BEGIN
     -- Insertion de l'événement dans la table Evenement
-    INSERT INTO Evenement (Eid, Enom, Ejour, Eheure, Enum_salle, Edescription, Etype)
+    INSERT INTO Evenement (Enom_complet, Enom_film, Ejour, Eheure, Enum_salle, Edescription, Etype)
     VALUES (nom_complet, nom_film, jour_debut, heure_debut, num_salle, Edescription, type_evenement);
 
     -- Insertion de la relation entre l'événement et l'établissement
-    INSERT INTO EvenementEtablissement (Eid, ETAadresse, ETAnom)
-    VALUES (nom_complet, ETAadresse, ETAnom);
+    INSERT INTO EvenementEtablissement (Enom_complet, Ejour, Eheure, Enum_salle, ETAadresse, ETAnom)
+    VALUES (nom_complet, jour_debut, heure_debut, num_salle, ETAadresse, ETAnom);
 END;
 $$ LANGUAGE plpgsql;
 
@@ -549,6 +443,8 @@ BEGIN
     ) THEN
         RAISE EXCEPTION 'Utilisateur % non trouvé', user_email;
     END IF;
+
+    SELECT gerer_creneau_connexion(user_email);
 
     -- Mettre à jour le statut de l'utilisateur à connecté
     UPDATE Utilisateur
@@ -607,3 +503,54 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Fonction pour générer un ID de billet unique
+CREATE FUNCTION generer_id_evenement(
+    nom_complet TEXT,
+    jour INT,
+    heure INT,
+    num_salle INT,
+) 
+RETURNS TEXT AS $$
+BEGIN
+    RETURN nom_complet || '_' || jour || '_' || heure || '_' || num_salle;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION evenement_prive(
+    nom_complet TEXT,
+    jour INT,
+    heure INT,
+    num_salle INT,
+    jour_reservation INT,
+    heure_reservation INT   
+)
+RETURNS VOID AS $$
+DECLARE
+    evenement_id TEXT;
+    jour INT;
+    heure INT;
+BEGIN
+    SELECT jour, heure INTO jour, heure
+    FROM TEMPS LIMIT 1;
+    
+    SELECT Enom_complet INTO evenement_id
+    FROM Evenement
+    WHERE Enom_complet = nom_complet
+      AND Ejour = jour
+      AND Eheure = heure
+      AND Enum_salle = num_salle;
+
+    IF evenement_id IS NULL THEN
+        RAISE EXCEPTION 'Événement % non trouvé', nom_complet;
+    END IF;
+
+    evenement_id := generer_id_evenement(nom_complet, jour, heure, num_salle);
+
+    INSERT INTO CreneauConnexion (CCjour_debut, CCheure_debut, CCetat, 50)
+    VALUES (jour_reservation, heure_reservation, evenement_id, 50);
+
+
+    
+
+END;
+$$ LANGUAGE plpgsql;

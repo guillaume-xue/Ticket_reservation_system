@@ -14,10 +14,9 @@ CREATE TABLE Utilisateur (
 CREATE TABLE CreneauConnexion (
     CCjour_debut INT NOT NULL,
     CCheure_debut INT NOT NULL,
-    CCetat VARCHAR(255) NOT NULL,
+    CCetat TEXT NOT NULL,
     CCmax_connexions INT NOT NULL,
-    PRIMARY KEY (CCjour_debut, CCheure_debut),
-    CHECK (CCetat IN ('Ouvert', 'Ferme', 'En attente')),
+    PRIMARY KEY (CCjour_debut, CCheure_debut, CCetat),
     CHECK (CCjour_debut >= 0 AND CCheure_debut >= 0)
 );
 
@@ -57,14 +56,15 @@ CREATE TABLE Categorie (
 );
 
 CREATE TABLE Evenement (
-    Eid TEXT NOT NULL,
-    Enom VARCHAR(255) NOT NULL,
+    Enom_complet TEXT NOT NULL,
+    Enom_film VARCHAR(255) NOT NULL,
     Ejour INT NOT NULL,
     Eheure INT NOT NULL,
     Enum_salle INT NOT NULL,
     Edescription TEXT NOT NULL,
     Etype VARCHAR(32) NOT NULL,
-    PRIMARY KEY (Eid),
+    Eid_parent TEXT,
+    PRIMARY KEY (Enom_complet, Ejour, Eheure, Enum_salle),
     CHECK (Etype IN ('Concert', 'SousEvenement', 'Film')),
     CHECK (Enum_salle > 0)
 );
@@ -107,21 +107,32 @@ CREATE TABLE Reservation (
 CREATE TABLE CreneauConnexionUtilisateur (
     CCjour_debut INT NOT NULL,
     CCheure_debut INT NOT NULL,
+    CCetat VARCHAR(255) NOT NULL,
     Uemail VARCHAR(255) NOT NULL,
-    Bid TEXT NOT NULL,
-    FOREIGN KEY (CCjour_debut, CCheure_debut) REFERENCES CreneauConnexion(CCjour_debut, CCheure_debut),
+    FOREIGN KEY (CCjour_debut, CCheure_debut, CCetat) REFERENCES CreneauConnexion(CCjour_debut, CCheure_debut, CCetat),
     FOREIGN KEY (Uemail) REFERENCES Utilisateur(Uemail),
-    FOREIGN KEY (Bid) REFERENCES Billet(Bid),
-    PRIMARY KEY (CCjour_debut, CCheure_debut, Uemail, Bid)
+    PRIMARY KEY (CCjour_debut, CCheure_debut, Uemail, CCetat)
 );
 
-CREATE TABLE CreneauConnexionBillet (
+CREATE TABLE CreneauConnexionEvenement (
     CCjour_debut INT NOT NULL,
     CCheure_debut INT NOT NULL,
+    CCetat VARCHAR(255) NOT NULL,
     Bid TEXT NOT NULL,
-    FOREIGN KEY (CCjour_debut, CCheure_debut) REFERENCES CreneauConnexion(CCjour_debut, CCheure_debut),
+    FOREIGN KEY (CCjour_debut, CCheure_debut, CCetat) REFERENCES CreneauConnexion(CCjour_debut, CCheure_debut, CCetat),
     FOREIGN KEY (Bid) REFERENCES Billet(Bid),
-    PRIMARY KEY (CCjour_debut, CCheure_debut, Bid)
+    PRIMARY KEY (CCjour_debut, CCheure_debut, Bid, CCetat)
+);
+
+CREATE TABLE BilletEvenement (
+    Bid TEXT NOT NULL,
+    Enom_complet TEXT NOT NULL,
+    Ejour INT NOT NULL,
+    Eheure INT NOT NULL,
+    Enum_salle INT NOT NULL,
+    FOREIGN KEY (Bid) REFERENCES Billet(Bid),
+    FOREIGN KEY (Enom_complet, Ejour, Eheure, Enum_salle) REFERENCES Evenement(Enom_complet, Ejour, Eheure, Enum_salle),
+    PRIMARY KEY (Bid, Enom_complet, Ejour, Eheure, Enum_salle)
 );
 
 CREATE TABLE EtablissementPolitique (
@@ -143,19 +154,25 @@ CREATE TABLE CategorieBillet (
 
 CREATE TABLE CategorieEvenement (
     CATnom VARCHAR(255) NOT NULL,
-    Eid TEXT NOT NULL,
+    Enom_complet TEXT NOT NULL,
+    Ejour INT NOT NULL,
+    Eheure INT NOT NULL,
+    Enum_salle INT NOT NULL,
     FOREIGN KEY (CATnom) REFERENCES Categorie(CATnom),
-    FOREIGN KEY (Eid) REFERENCES Evenement(Eid),
-    PRIMARY KEY (CATnom, Eid)
+    FOREIGN KEY (Enom_complet, Ejour, Eheure, Enum_salle) REFERENCES Evenement(Enom_complet, Ejour, Eheure, Enum_salle),
+    PRIMARY KEY (CATnom, Enom_complet, Ejour, Eheure, Enum_salle)
 );
 
 CREATE TABLE EvenementEtablissement (
-    Eid TEXT NOT NULL,
+    Enom_complet TEXT NOT NULL,
+    Ejour INT NOT NULL,
+    Eheure INT NOT NULL,
+    Enum_salle INT NOT NULL,
     ETAadresse VARCHAR(255) NOT NULL,
     ETAnom VARCHAR(255) NOT NULL,
-    FOREIGN KEY (Eid) REFERENCES Evenement(Eid),
+    FOREIGN KEY (Enom_complet, Ejour, Eheure, Enum_salle) REFERENCES Evenement(Enom_complet, Ejour, Eheure, Enum_salle),
     FOREIGN KEY (ETAadresse, ETAnom) REFERENCES Etablissement(ETAadresse, ETAnom),
-    PRIMARY KEY (Eid, ETAadresse, ETAnom)
+    PRIMARY KEY (Enom_complet, Ejour, Eheure, Enum_salle, ETAadresse, ETAnom)
 );
 
 CREATE TABLE TEMPS (

@@ -11,12 +11,20 @@ BEGIN
                 RAISE EXCEPTION 'Impossible';
         END IF;
     END IF;
+
+    INSERT INTO CreneauConnexion (CCjour_debut, CCheure_debut, CCetat, CCmax_connexions)
+    VALUES (NEW.jour, NEW.heure, 'Ouvert', 100), 
+           (NEW.jour, NEW.heure, 'En attente', 100),
+            (NEW.jour, NEW.heure, 'Ferme', 0);
+
+
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
 -- Trigger to control the insertion and update of the TEMPS table
-CREATE TRIGGER controle_temps_trigger BEFORE UPDATE OR INSERT ON TEMPS
+CREATE TRIGGER controle_temps_trigger 
+BEFORE UPDATE OR INSERT ON TEMPS
 FOR EACH ROW
 EXECUTE PROCEDURE controle_temps();
 
@@ -95,6 +103,7 @@ DECLARE
     jour INT;
     heure INT;
     CATlist TEXT[];
+    billet_id TEXT;
 BEGIN
     CATlist := ARRAY['Carre Or', 'Cat1', 'Cat2', 'Cat3', 'Cat4'];
     SELECT TEMPS.jour, TEMPS.heure INTO jour, heure FROM TEMPS LIMIT 1;
@@ -104,16 +113,24 @@ BEGIN
         FROM Categorie c
         WHERE c.CATnom = 'Unique';
         FOR i IN 1..CATnb_place LOOP
+            billet_id := generer_id_billet(NEW.Enom_complet, NEW.Enom_film, NEW.Ejour, NEW.Eheure, NEW.Enum_salle, i, 'Unique');
             INSERT INTO Billet (Bid, Bjour_achat, Bheure_achat, Bprix_initial, Bprix_achat, Bpromotion, Bdisponibilite, Bnum_place)
-            VALUES (generer_id_billet(NEW.Eid, NEW.Enom, NEW.Ejour, NEW.Eheure, NEW.Enum_salle, i, 'Unique'), jour, heure, CATprix, CATprix, 0, TRUE, i);
+            VALUES (billet_id, jour, heure, CATprix, CATprix, 0, TRUE, i);
+
+            INSERT INTO BilletEvenement (Bid, Enom_complet, Ejour, Eheure, Enum_salle)
+            VALUES (billet_id, NEW.Enom_complet, NEW.Ejour, NEW.Eheure, NEW.Enum_salle);
         END LOOP;
     ELSIF NEW.Etype = 'SousEvenement' THEN
         SELECT c.CATnb_place, c.CATprix INTO CATnb_place, CATprix
         FROM Categorie c
         WHERE c.CATnom = 'UniqueVIP';        
         FOR i IN 1..CATnb_place LOOP
+            billet_id := generer_id_billet(NEW.Enom_complet, NEW.Enom_film, NEW.Ejour, NEW.Eheure, NEW.Enum_salle, i, 'UniqueVIP');
             INSERT INTO Billet (Bid, Bjour_achat, Bheure_achat, Bprix_initial, Bprix_achat, Bpromotion, Bdisponibilite, Bnum_place)
-            VALUES (generer_id_billet(NEW.Eid, NEW.Enom, NEW.Ejour, NEW.Eheure, NEW.Enum_salle, i, 'UniqueVIP'), jour, heure, CATprix, CATprix, 0, TRUE, i);
+            VALUES (billet_id, jour, heure, CATprix, CATprix, 0, TRUE, i);
+
+            INSERT INTO BilletEvenement (Bid, Enom_complet, Ejour, Eheure, Enum_salle)
+            VALUES (billet_id, NEW.Enom_complet, NEW.Ejour, NEW.Eheure, NEW.Enum_salle);
         END LOOP;
     ELSE 
         FOR i IN 1..array_length(CATlist, 1) LOOP
@@ -121,8 +138,12 @@ BEGIN
             FROM Categorie c
             WHERE c.CATnom = CATlist[i];            
             FOR j IN 1..CATnb_place LOOP
+                billet_id := generer_id_billet(NEW.Enom_complet, NEW.Enom_film, NEW.Ejour, NEW.Eheure, NEW.Enum_salle, j, CATlist[i]);
                 INSERT INTO Billet (Bid, Bjour_achat, Bheure_achat, Bprix_initial, Bprix_achat, Bpromotion, Bdisponibilite, Bnum_place)
-                VALUES (generer_id_billet(NEW.Eid, NEW.Enom, NEW.Ejour, NEW.Eheure, NEW.Enum_salle, j, CATlist[i]), jour, heure, CATprix, CATprix, 0, TRUE, j);
+                VALUES (billet_id, jour, heure, CATprix, CATprix, 0, TRUE, j);
+
+                INSERT INTO BilletEvenement (Bid, Enom_complet, Ejour, Eheure, Enum_salle)
+                VALUES (billet_id, NEW.Enom_complet, NEW.Ejour, NEW.Eheure, NEW.Enum_salle);
             END LOOP;
         END LOOP;
     END IF;
@@ -164,15 +185,15 @@ DECLARE
 BEGIN
     CATlist := ARRAY['Carre Or', 'Cat1', 'Cat2', 'Cat3', 'Cat4'];
     IF NEW.Etype = 'Film' THEN
-        INSERT INTO CategorieEvenement (CATnom, Eid)
-        VALUES ('Unique', NEW.Eid);
+        INSERT INTO CategorieEvenement (CATnom, Enom_complet, Ejour, Eheure, Enum_salle)
+        VALUES ('Unique', NEW.Enom_complet, NEW.Ejour, NEW.Eheure, NEW.Enum_salle);
     ELSIF NEW.Etype = 'SousEvenement' THEN
-        INSERT INTO CategorieEvenement (CATnom, Eid)
-        VALUES ('UniqueVIP', NEW.Eid);
+        INSERT INTO CategorieEvenement (CATnom, Enom_complet, Ejour, Eheure, Enum_salle)
+        VALUES ('UniqueVIP', NEW.Enom_complet, NEW.Ejour, NEW.Eheure, NEW.Enum_salle);
     ELSE 
         FOR i IN 1..array_length(CATlist, 1) LOOP
-            INSERT INTO CategorieEvenement (CATnom, Eid)
-            VALUES (CATlist[i], NEW.Eid);
+            INSERT INTO CategorieEvenement (CATnom, Enom_complet, Ejour, Eheure, Enum_salle)
+            VALUES (CATlist[i], NEW.Enom_complet, NEW.Ejour, NEW.Eheure, NEW.Enum_salle);
         END LOOP;
     END IF;
     RETURN NEW;
@@ -184,6 +205,38 @@ AFTER INSERT ON Evenement
 FOR EACH ROW
 EXECUTE PROCEDURE verifier_categorie_evenement();
 
+CREATE OR REPLACE FUNCTION verifier_sous_evenement()
+RETURNS TRIGGER AS $$
+DECLARE
+    parent_id TEXT;
+BEGIN
+    IF NEW.Etype != 'SousEvenement' THEN
+        RETURN NEW;
+    END IF;
+
+    -- Vérification de l'existence de l'événement parent
+    SELECT Enom_complet INTO parent_id FROM Evenement 
+    WHERE Enom_film = NEW.Enom_film 
+    AND Ejour = NEW.Ejour 
+    AND Eheure = NEW.Eheure 
+    AND Enum_salle = NEW.Enum_salle 
+    AND Enom_complet != NEW.Enom_complet
+    AND (Etype = 'Film' OR Etype = 'Concert');
+
+    IF parent_id IS NULL THEN
+        RAISE EXCEPTION 'L événement parent % n existe pas', NEW.Eid_parent;
+    END IF;
+
+    NEW.Eid_parent := parent_id;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER verifier_sous_evenement_trigger
+BEFORE INSERT ON Evenement
+FOR EACH ROW
+EXECUTE PROCEDURE verifier_sous_evenement();
 
 -- Trigger pour gérer la suppression des événements et billets
 CREATE OR REPLACE FUNCTION check_after_timer_update()
@@ -200,7 +253,7 @@ BEGIN
     --     OR (jour = NEW.jour AND heure < NEW.heure);
 
     FOR evenement_rec IN
-        SELECT Eid FROM Evenement
+        SELECT Enom_complet FROM Evenement
         WHERE 
             (Ejour < NEW.jour)
             OR (
@@ -240,6 +293,11 @@ BEGIN
         DELETE FROM Billet WHERE Bid = billet_rec.Bid;
     END LOOP;
 
+    INSERT INTO CreneauConnexion (CCjour_debut, CCheure_debut, CCetat, CCmax_connexions)
+    VALUES (NEW.jour, NEW.heure, 'Ouvert', 100), 
+           (NEW.jour, NEW.heure, 'En attente', 100),
+              (NEW.jour, NEW.heure, 'Ferme', 0);
+
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
@@ -248,3 +306,36 @@ CREATE TRIGGER check_after_timer
 AFTER UPDATE ON TEMPS
 FOR EACH ROW
 EXECUTE PROCEDURE check_after_timer_update();
+
+
+
+CREATE OR REPLACE FUNCTION check_user()
+RETURNS TRIGGER AS $$
+DECLARE
+    jour INT;
+    heure INT;
+BEGIN
+    UPDATE Utilisateur
+    SET Ususpect = TRUE
+    WHERE Uemail = NEW.Uemail
+      AND Uemail IN (
+        SELECT U.Uemail
+        FROM Utilisateur U
+        JOIN Reservation R ON U.Uemail = R.Uemail
+        WHERE U.Uemail = NEW.Uemail
+        GROUP BY U.Uemail
+        HAVING 
+            COUNT(CASE WHEN R.Rstatut = 'Annule' THEN 1 END) > 10 -- Plus de 10 annulations
+            OR COUNT(R.Bid) > 50 -- Plus de 50 réservations
+            -- C Cette partie à revoir
+            -- OR (MAX(R.Rjour_debut) - MIN(R.Rjour_debut)) * 24 + (MAX(R.Rheure_debut) - MIN(R.Rheure_debut)) < 1 -- Durée moyenne < 1 heure
+            -- OR (MAX(R.Rjour_debut * 24 + R.Rheure_debut) - MIN(R.Rjour_debut * 24 + R.Rheure_debut)) < 24 -- Réservations concentrées sur une journée
+      );
+    RETURN NEW;
+END;
+
+CREATE TRIGGER check_user
+AFTER UPDATE ON Utilisateur
+FOR EACH ROW
+WHEN (OLD.Uconnecte IS DISTINCT FROM NEW.Uconnecte)
+EXECUTE FUNCTION check_user();
