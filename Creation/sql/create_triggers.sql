@@ -248,10 +248,6 @@ BEGIN
 
     UPDATE Utilisateur SET Uconnecte = FALSE WHERE Uconnecte = TRUE;
 
-    -- DELETE FROM CreneauConnexion
-    -- WHERE (jour < NEW.jour)
-    --     OR (jour = NEW.jour AND heure < NEW.heure);
-
     FOR evenement_rec IN
         SELECT * FROM Evenement
         WHERE 
@@ -283,18 +279,6 @@ BEGIN
             AND Enum_salle = evenement_rec.Enum_salle;
     END LOOP;
 
-    -- DELETE FROM Reservation
-    -- WHERE (Rjour < NEW.jour)
-    --     OR (Rjour = NEW.jour AND Rheure < NEW.heure);
-
-    -- DELETE FROM CreneauConnexionUtilisateur
-    -- WHERE (CCjour_debut < NEW.jour)
-    --     OR (CCjour_debut = NEW.jour AND CCheure_debut < NEW.heure);
-    
-    -- DELETE FROM CreneauConnexionBillet
-    -- WHERE (CCjour_debut < NEW.jour)
-    --     OR (CCjour_debut = NEW.jour AND CCheure_debut < NEW.heure);
-
     FOR billet_rec IN
         SELECT Bid FROM Billet
         WHERE 
@@ -304,7 +288,7 @@ BEGIN
                 AND (split_part(Bid, '-', 4)::int) < NEW.heure
             )
     LOOP
-        DELETE FROM Echange WHERE Bid = billet_rec.Bid;
+        -- DELETE FROM Echange WHERE Bid = billet_rec.Bid;
         DELETE FROM CategorieBillet WHERE Bid = billet_rec.Bid;
         -- DELETE FROM Billet WHERE Bid = billet_rec.Bid;
         UPDATE Reservation
