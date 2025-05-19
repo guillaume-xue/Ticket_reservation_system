@@ -57,7 +57,7 @@ FOR EACH ROW
 EXECUTE PROCEDURE calcul_nb_max_billets();
 
 
-CREATE FUNCTION verifier_etablissement_politique()
+CREATE OR REPLACE FUNCTION verifier_etablissement_politique()
 RETURNS TRIGGER AS $$
 BEGIN
     -- Vérification de l'existence de la politique d'établissement
@@ -79,7 +79,7 @@ EXECUTE PROCEDURE verifier_etablissement_politique();
 
 
 -- Fonction pour générer un ID de billet unique
-CREATE FUNCTION generer_id_billet(
+CREATE OR REPLACE FUNCTION generer_id_billet(
     Eid TEXT,
     Enom VARCHAR(255),
     Ejour INT,
@@ -253,7 +253,7 @@ BEGIN
     --     OR (jour = NEW.jour AND heure < NEW.heure);
 
     FOR evenement_rec IN
-        SELECT Enom_complet FROM Evenement
+        SELECT * FROM Evenement
         WHERE 
             (Ejour < NEW.jour)
             OR (
@@ -261,9 +261,26 @@ BEGIN
                 AND (Eheure < NEW.heure)
             )
     LOOP
-        DELETE FROM CategorieEvenement WHERE Eid = evenement_rec.Eid;
-        DELETE FROM EvenementEtablissement WHERE Eid = evenement_rec.Eid;
-        DELETE FROM Evenement WHERE Eid = evenement_rec.Eid;
+        DELETE FROM BilletEvenement WHERE Enom_complet = evenement_rec.Enom_complet
+            AND Ejour = evenement_rec.Ejour
+            AND Eheure = evenement_rec.Eheure
+            AND Enum_salle = evenement_rec.Enum_salle;
+        DELETE FROM CreneauConnexionEvenement WHERE Enom_complet = evenement_rec.Enom_complet
+            AND Ejour = evenement_rec.Ejour
+            AND Eheure = evenement_rec.Eheure
+            AND Enum_salle = evenement_rec.Enum_salle;
+        DELETE FROM CategorieEvenement WHERE Enom_complet = evenement_rec.Enom_complet
+            AND Ejour = evenement_rec.Ejour
+            AND Eheure = evenement_rec.Eheure
+            AND Enum_salle = evenement_rec.Enum_salle;
+        DELETE FROM EvenementEtablissement WHERE Enom_complet = evenement_rec.Enom_complet
+            AND Ejour = evenement_rec.Ejour
+            AND Eheure = evenement_rec.Eheure
+            AND Enum_salle = evenement_rec.Enum_salle;
+        DELETE FROM Evenement WHERE Enom_complet = evenement_rec.Enom_complet
+            AND Ejour = evenement_rec.Ejour
+            AND Eheure = evenement_rec.Eheure
+            AND Enum_salle = evenement_rec.Enum_salle;
     END LOOP;
 
     -- DELETE FROM Reservation
@@ -291,6 +308,9 @@ BEGIN
         DELETE FROM Echange WHERE Bid = billet_rec.Bid;
         DELETE FROM CategorieBillet WHERE Bid = billet_rec.Bid;
         DELETE FROM Billet WHERE Bid = billet_rec.Bid;
+        UPDATE Reservation
+        SET Rstatut = 'Termine'
+        WHERE Bid = billet_rec.Bid;
     END LOOP;
 
     INSERT INTO CreneauConnexion (CCjour_debut, CCheure_debut, CCetat, CCmax_connexions)
@@ -308,17 +328,12 @@ FOR EACH ROW
 EXECUTE PROCEDURE check_after_timer_update();
 
 
-
 CREATE OR REPLACE FUNCTION check_user()
 RETURNS TRIGGER AS $$
-DECLARE
-    jour INT;
-    heure INT;
 BEGIN
     UPDATE Utilisateur
     SET Ususpect = TRUE
-    WHERE Uemail = NEW.Uemail
-      AND Uemail IN (
+    WHERE Uemail IN (
         SELECT U.Uemail
         FROM Utilisateur U
         JOIN Reservation R ON U.Uemail = R.Uemail
@@ -330,12 +345,52 @@ BEGIN
             -- C Cette partie à revoir
             -- OR (MAX(R.Rjour_debut) - MIN(R.Rjour_debut)) * 24 + (MAX(R.Rheure_debut) - MIN(R.Rheure_debut)) < 1 -- Durée moyenne < 1 heure
             -- OR (MAX(R.Rjour_debut * 24 + R.Rheure_debut) - MIN(R.Rjour_debut * 24 + R.Rheure_debut)) < 24 -- Réservations concentrées sur une journée
-      );
+    );
     RETURN NEW;
 END;
+$$ LANGUAGE plpgsql;
 
 CREATE TRIGGER check_user
-AFTER UPDATE ON Utilisateur
+AFTER UPDATE ON TEMPS
 FOR EACH ROW
-WHEN (OLD.Uconnecte IS DISTINCT FROM NEW.Uconnecte)
 EXECUTE FUNCTION check_user();
+
+CREATE OR REPLACE FUNCTION nettoyage_creneaux_connexion()
+RETURNS TRIGGER AS $$
+DECLARE
+    cce_rec RECORD;
+BEGIN
+    FOR cce_rec IN
+        SELECT CCjour_debut, CCheure_debut, CCetat
+        FROM CreneauConnexionEvenement
+        WHERE 
+            (CCjour_debut < NEW.jour)
+            OR (CCjour_debut = NEW.jour AND CCheure_debut < NEW.heure)
+    LOOP
+        -- Suppression dans CreneauConnexionUtilisateur pour ce créneau et état
+        DELETE FROM CreneauConnexionUtilisateur
+        WHERE CCjour_debut = cce_rec.CCjour_debut
+          AND CCheure_debut = cce_rec.CCheure_debut
+          AND CCetat = cce_rec.CCetat;
+
+        -- Suppression dans CreneauConnexionEvenement
+        DELETE FROM CreneauConnexionEvenement
+        WHERE CCjour_debut = cce_rec.CCjour_debut
+          AND CCheure_debut = cce_rec.CCheure_debut
+          AND CCetat = cce_rec.CCetat;
+
+        -- Suppression dans CreneauConnexion
+        DELETE FROM CreneauConnexion
+        WHERE CCjour_debut = cce_rec.CCjour_debut
+          AND CCheure_debut = cce_rec.CCheure_debut
+          AND CCetat = cce_rec.CCetat;
+    END LOOP;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER nettoyage_creneaux_connexion_trigger
+AFTER UPDATE ON TEMPS
+FOR EACH ROW
+EXECUTE PROCEDURE nettoyage_creneaux_connexion();

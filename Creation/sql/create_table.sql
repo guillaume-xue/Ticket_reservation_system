@@ -91,13 +91,13 @@ CREATE TABLE Reservation (
     FOREIGN KEY (Uemail) REFERENCES Utilisateur(Uemail),
     FOREIGN KEY (Bid) REFERENCES Billet(Bid),
     PRIMARY KEY (Uemail, Bid),
-    CHECK (Rstatut IN ('Pre-reserve', 'Reserve', 'Annule', 'Confirme'))
+    CHECK (Rstatut IN ('Pre-reserve', 'Reserve', 'Annule', 'Confirme', 'Termine'))
 );
 
 CREATE TABLE CreneauConnexionUtilisateur (
     CCjour_debut INT NOT NULL,
     CCheure_debut INT NOT NULL,
-    CCetat VARCHAR(255) NOT NULL,
+    CCetat TEXT NOT NULL,
     Uemail VARCHAR(255) NOT NULL,
     FOREIGN KEY (CCjour_debut, CCheure_debut, CCetat) REFERENCES CreneauConnexion(CCjour_debut, CCheure_debut, CCetat),
     FOREIGN KEY (Uemail) REFERENCES Utilisateur(Uemail),
@@ -107,11 +107,14 @@ CREATE TABLE CreneauConnexionUtilisateur (
 CREATE TABLE CreneauConnexionEvenement (
     CCjour_debut INT NOT NULL,
     CCheure_debut INT NOT NULL,
-    CCetat VARCHAR(255) NOT NULL,
-    Bid TEXT NOT NULL,
+    CCetat TEXT NOT NULL,
+    Enom_complet TEXT NOT NULL,
+    Ejour INT NOT NULL,
+    Eheure INT NOT NULL,
+    Enum_salle INT NOT NULL,
     FOREIGN KEY (CCjour_debut, CCheure_debut, CCetat) REFERENCES CreneauConnexion(CCjour_debut, CCheure_debut, CCetat),
-    FOREIGN KEY (Bid) REFERENCES Billet(Bid),
-    PRIMARY KEY (CCjour_debut, CCheure_debut, Bid, CCetat)
+    FOREIGN KEY (Enom_complet, Ejour, Eheure, Enum_salle) REFERENCES Evenement(Enom_complet, Ejour, Eheure, Enum_salle),
+    PRIMARY KEY (CCjour_debut, CCheure_debut, CCetat, Enom_complet, Ejour, Eheure, Enum_salle)
 );
 
 CREATE TABLE BilletEvenement (

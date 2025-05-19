@@ -1,3 +1,59 @@
+CREATE OR REPLACE FUNCTION check_is_evenement_prive(
+    billet_id TEXT,
+    email_utilisateur VARCHAR(255)
+)
+RETURNS BOOLEAN AS $$
+DECLARE
+    v_enom_complet TEXT;
+    v_ejour INT;
+    v_eheure INT;
+    v_enum_salle INT;
+    v_ccetat TEXT;
+    is_autorise BOOLEAN := FALSE;
+    jour_courant INT;
+    heure_courant INT;
+BEGIN
+    -- Récupérer les infos de l'événement associé au billet
+    SELECT Enom_complet, Ejour, Eheure, Enum_salle
+    INTO v_enom_complet, v_ejour, v_eheure, v_enum_salle
+    FROM BilletEvenement
+    WHERE Bid = billet_id;
+
+    -- Récupérer le temps courant
+    SELECT jour, heure INTO jour_courant, heure_courant FROM TEMPS LIMIT 1;
+
+    -- Vérifier que le billet correspond au créneau temporel actuel
+    IF v_ejour IS NULL OR v_eheure IS NULL OR v_ejour <> jour_courant OR v_eheure <> heure_courant THEN
+        RETURN FALSE;
+    END IF;
+
+    -- Vérifier si cet événement existe dans CreneauConnexionEvenement et récupérer le CCetat
+    SELECT CCetat INTO v_ccetat
+    FROM CreneauConnexionEvenement
+    WHERE Enom_complet = v_enom_complet
+      AND Ejour = v_ejour
+      AND Eheure = v_eheure
+      AND Enum_salle = v_enum_salle
+    LIMIT 1;
+
+    IF FOUND THEN
+        -- Vérifier si l'utilisateur est autorisé pour ce créneau
+        SELECT TRUE INTO is_autorise
+        FROM CreneauConnexionUtilisateur
+        WHERE CCetat = v_ccetat
+          AND Uemail = email_utilisateur
+        LIMIT 1;
+        RETURN is_autorise;
+    ELSE
+        -- Ce n'est pas un événement privé, donc l'utilisateur est autorisé
+        RETURN TRUE;
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+
+
+
 -- Fonction pour pré-réserver un billet
 -- Cette fonction vérifie la disponibilité du billet et l'associe à l'utilisateur
 -- en mettant à jour la table Billet et en insérant une nouvelle réservation
@@ -10,14 +66,18 @@ RETURNS VOID AS $$
 DECLARE
     nb_max_billets INT;
     billet_disponible BOOLEAN;
-    jour INT;
-    heure INT;
+    jour_courant INT;
+    heure_courant INT;
 BEGIN
+    IF NOT (SELECT check_is_evenement_prive(billet_id, user_email)) THEN
+        RAISE EXCEPTION 'Le billet % est associé à un événement privé', billet_id;
+    END IF;
+
     -- Vérification de la disponibilité du billet
-    SELECT Bdisponibilite INTO billet_disponible
-    FROM Billet
-    WHERE Bid = billet_id
-      AND Bdisponibilite = TRUE
+    SELECT B.Bdisponibilite INTO billet_disponible
+    FROM Billet B
+    WHERE B.Bid = billet_id
+      AND B.Bdisponibilite = TRUE
     FOR UPDATE;
 
     IF NOT billet_disponible THEN
@@ -25,35 +85,35 @@ BEGIN
     END IF;
 
     -- Avoir le nombre maximum de billets autorisés pour l'utilisateur
-    SELECT Unb_max_billets INTO nb_max_billets
-    FROM Utilisateur
-    WHERE Uemail = user_email;
+    SELECT U.Unb_max_billets INTO nb_max_billets
+    FROM Utilisateur U
+    WHERE U.Uemail = user_email;
 
     -- Vérifier si l'utilisateur existe
     IF nb_max_billets IS NULL THEN
         RAISE EXCEPTION 'Utilisateur % non trouvé', user_email;
     END IF;
 
-    -- Verifier le nombre de pré-réservations
+    -- Vérifier le nombre de pré-réservations
     IF (SELECT COUNT(*)
-        FROM Reservation
-        WHERE Uemail = user_email
-          AND Rstatut = 'Pre-reserve') >= nb_max_billets THEN
+        FROM Reservation R
+        WHERE R.Uemail = user_email
+          AND R.Rstatut = 'Pre-reserve') >= nb_max_billets THEN
         RAISE EXCEPTION 'Limite de pré-réservations atteinte pour l''utilisateur %', user_email;
     END IF;
+
+    -- Récupérer le jour et l'heure actuels
+    SELECT T.jour, T.heure INTO jour_courant, heure_courant
+    FROM TEMPS T LIMIT 1;
+
+    -- Insertion de la pré-réservation
+    INSERT INTO Reservation (Uemail, Bid, Rjour_debut, Rheure_debut, Rstatut)
+    VALUES (user_email, billet_id, jour_courant, heure_courant, 'Pre-reserve');
 
     -- Mettre à jour la disponibilité du billet
     UPDATE Billet
     SET Bdisponibilite = FALSE
     WHERE Bid = billet_id;
-
-    -- Récupérer le jour et l'heure actuels
-    SELECT jour, heure INTO jour, heure
-    FROM TEMPS LIMIT 1;
-
-    -- Insertion de la pré-réservation
-    INSERT INTO Reservation (Uemail, Bid, Rjour_debut, Rheure_debut, Rstatut)
-    VALUES (user_email, billet_id, jour, heure, 'Pre-reserve');
 END;
 $$ LANGUAGE plpgsql;
 
@@ -62,7 +122,8 @@ $$ LANGUAGE plpgsql;
 -- dans la table Billet.
 CREATE OR REPLACE FUNCTION confirmer_reservation(
     user_email VARCHAR(255),
-    billet_id TEXT
+    billet_id TEXT,
+    promotion INT DEFAULT 0
 )
 RETURNS VOID AS $$
 DECLARE
@@ -75,7 +136,7 @@ BEGIN
     FROM Reservation
     WHERE Uemail = user_email
       AND Bid = billet_id
-      AND Rstatut = 'Pre-reserve'
+      AND (Rstatut = 'Pre-reserve' OR Rstatut = 'Reserve')
     FOR UPDATE;
 
     IF NOT FOUND THEN
@@ -101,10 +162,16 @@ BEGIN
     JOIN Categorie C ON CB.CATnom = C.CATnom
     WHERE CB.Bid = billet_id;
 
+    -- Appliquer la promotion si elle est fournie
+    IF promotion IS NOT NULL THEN
+        prix_achat := prix_achat * ((100 - promotion) / 100);
+    END IF;
+
     -- Mettre à jour le prix d'achat du billet
     UPDATE Billet
     SET Bprix_achat = prix_achat,
-        Bdisponibilite = FALSE
+        Bdisponibilite = FALSE,
+        Bpromotion = promotion
     WHERE Bid = billet_id;
 END;
 $$ LANGUAGE plpgsql;
@@ -524,7 +591,7 @@ CREATE OR REPLACE FUNCTION generer_id_evenement(
 ) 
 RETURNS TEXT AS $$
 BEGIN
-    RETURN nom_complet || '_' || jour || '_' || heure || '_' || num_salle;
+    RETURN nom_complet || '-' || jour || '-' || heure || '-' || num_salle;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -532,10 +599,10 @@ $$ LANGUAGE plpgsql;
 -- Cette fonction insère un événement privé dans la table Evenement
 -- et crée une relation entre l'événement privé et le créneau de connexion
 -- dans la table CreneauConnexion.
-CREATE OR REPLACE FUNCTION evenement_prive(
+CREATE OR REPLACE FUNCTION evenement_sur_reservation(
     nom_complet TEXT,
-    jour INT,
-    heure INT,
+    jour_param INT,
+    heure_param INT,
     num_salle INT,
     jour_reservation INT,
     heure_reservation INT   
@@ -543,26 +610,92 @@ CREATE OR REPLACE FUNCTION evenement_prive(
 RETURNS VOID AS $$
 DECLARE
     evenement_id TEXT;
-    jour INT;
-    heure INT;
+    nb_places INT;
+    type_evenement VARCHAR;
 BEGIN
-    SELECT jour, heure INTO jour, heure
-    FROM TEMPS LIMIT 1;
-    
-    SELECT Enom_complet INTO evenement_id
-    FROM Evenement
-    WHERE Enom_complet = nom_complet
-      AND Ejour = jour
-      AND Eheure = heure
-      AND Enum_salle = num_salle;
+    SELECT e.Enom_complet, e.Etype INTO evenement_id, type_evenement
+    FROM Evenement e
+    WHERE e.Enom_complet = nom_complet
+      AND e.Ejour = jour_param
+      AND e.Eheure = heure_param
+      AND e.Enum_salle = num_salle;
 
     IF evenement_id IS NULL THEN
+        RAISE EXCEPTION 'Événement % non trouvé', evenement_id;
+    END IF;
+
+    evenement_id := generer_id_evenement(nom_complet, jour_param, heure_param, num_salle);
+
+    IF type_evenement IS NULL THEN
+        RAISE EXCEPTION 'Type d''événement non trouvé pour %', nom_complet;
+    ELSIF type_evenement = 'Film' THEN
+        SELECT c.CATnb_place INTO nb_places
+        FROM Categorie c
+        WHERE c.CATnom = 'Unique';
+    ELSIF type_evenement = 'Concert' THEN
+        SELECT SUM(c.CATnb_place) INTO nb_places
+        FROM Categorie c
+        WHERE c.CATnom IN ('Carre Or', 'Cat1', 'Cat2', 'Cat3', 'Cat4');
+    ELSIF type_evenement = 'SousEvenement' THEN
+        SELECT c.CATnb_place INTO nb_places
+        FROM Categorie c
+        WHERE c.CATnom = 'UniqueVIP';
+    ELSE
+        RAISE EXCEPTION 'Type événement non pris en charge pour %', nom_complet;
+    END IF;
+
+    INSERT INTO CreneauConnexion (CCjour_debut, CCheure_debut, CCetat, CCmax_connexions)
+    VALUES (jour_reservation, heure_reservation, evenement_id, nb_places);
+
+    INSERT INTO CreneauConnexionEvenement (CCjour_debut, CCheure_debut, CCetat, Enom_complet, Ejour, Eheure, Enum_salle)
+    VALUES (jour_reservation, heure_reservation, evenement_id, nom_complet, jour_param, heure_param, num_salle);
+END;
+$$ LANGUAGE plpgsql;
+
+-- Correction dans inscription_evenement_prive :
+CREATE OR REPLACE FUNCTION inscription_evenement_prive(
+    user_email VARCHAR(255),
+    nom_complet TEXT
+)
+RETURNS VOID AS $$
+DECLARE
+    nb_connexions INT;
+    max_connexions INT;
+    jour_evt INT;
+    heure_evt INT;
+BEGIN
+    -- Vérifier si l'utilisateur existe
+    IF NOT EXISTS (
+        SELECT 1
+        FROM Utilisateur
+        WHERE Uemail = user_email
+    ) THEN
+        RAISE EXCEPTION 'Utilisateur % non trouvé', user_email;
+    END IF;
+
+    -- Vérifier si l'événement existe
+    IF NOT EXISTS (
+        SELECT 1
+        FROM CreneauConnexion
+        WHERE CCetat = nom_complet
+    ) THEN
         RAISE EXCEPTION 'Événement % non trouvé', nom_complet;
     END IF;
 
-    evenement_id := generer_id_evenement(nom_complet, jour, heure, num_salle);
+    SELECT COUNT(*) INTO nb_connexions
+    FROM CreneauConnexionUtilisateur
+    WHERE CCetat = nom_complet;
 
-    INSERT INTO CreneauConnexion (CCjour_debut, CCheure_debut, CCetat, CCmax_connexions)
-    VALUES (jour_reservation, heure_reservation, evenement_id, 50);
+    SELECT CCmax_connexions, CCjour_debut, CCheure_debut INTO max_connexions, jour_evt, heure_evt
+    FROM CreneauConnexion
+    WHERE CCetat = nom_complet;
+
+    IF nb_connexions >= max_connexions THEN
+        RAISE EXCEPTION 'Le nombre maximum de pré inscription pour événement % a été atteint', nom_complet;
+    END IF;
+
+    INSERT INTO CreneauConnexionUtilisateur (CCjour_debut, CCheure_debut, CCetat, Uemail)
+    VALUES (jour_evt, heure_evt, nom_complet, user_email);
+
 END;
 $$ LANGUAGE plpgsql;

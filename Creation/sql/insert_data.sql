@@ -6,6 +6,7 @@
 SELECT inserer_evenement('Top Gun avant premiere', 'Top Gun', 2, 20, 1, 'Film Top Gun', 'Film', 'Paris', 'Grand Rex');
 SELECT inserer_evenement('Top Gun vip', 'Top Gun', 2, 20, 1, 'Film Top Gun', 'SousEvenement', 'Paris', 'Grand Rex');
 SELECT inserer_evenement('Opera', 'Opera', 5, 20, 1, 'Opera de Paris', 'Concert', 'Paris', 'Grand Rex');
+SELECT inserer_evenement('Tom et Jerry Film', 'Tom et Jerry', 5, 20, 1, 'Tom et Jerry', 'Film', 'Paris', 'Grand Rex');
 
 INSERT INTO TEMPS (jour, heure) VALUES (0,0);
 
