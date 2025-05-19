@@ -798,7 +798,5 @@ BEGIN
       AND Uemail_emetteur = emetteur
       AND Uemail_destinataire IS NULL;
 
-    DELETE FROM Echange WHERE Bid = billet_id AND Uemail_emetteur = emetteur;
-
 END;
 $$ LANGUAGE plpgsql;
