@@ -699,3 +699,36 @@ BEGIN
 
 END;
 $$ LANGUAGE plpgsql;
+
+-- Fonction d'échange de billet entre deux utilisateurs
+CREATE OR REPLACE FUNCTION echanger_billet(
+    emetteur VARCHAR,
+    destinataire VARCHAR,
+    billet_id TEXT,
+) RETURNS VOID AS $$
+DECLARE
+    jour INT;
+    heure INT;
+BEGIN
+
+    SELECT T.jour, T.heure INTO jour, heure
+    FROM TEMPS T LIMIT 1;
+
+    -- Vérifier que l'émetteur possède le billet
+    IF NOT EXISTS (
+        SELECT 1 FROM Reservation
+        WHERE Uemail = emetteur AND Bid = billet_id
+    ) THEN
+        RAISE EXCEPTION 'L''émetteur ne possède pas ce billet';
+    END IF;
+
+    -- Mettre à jour la réservation : transférer le billet au destinataire
+    UPDATE Reservation
+    SET Uemail = destinataire
+    WHERE Uemail = emetteur AND Bid = billet_id;
+
+    -- Insérer la trace dans la table Echange
+    INSERT INTO Echange (Uemail_emetteur, Uemail_destinataire, Bid, ECjour, ECheure)
+    VALUES (emetteur, destinataire, billet_id, jour, heure);
+END;
+$$ LANGUAGE plpgsql;

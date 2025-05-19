@@ -394,3 +394,21 @@ CREATE TRIGGER nettoyage_creneaux_connexion_trigger
 AFTER UPDATE ON TEMPS
 FOR EACH ROW
 EXECUTE PROCEDURE nettoyage_creneaux_connexion();
+
+-- Trigger pour vérifier l'existence de l'utilisateur destinataire lors d'un échange
+CREATE OR REPLACE FUNCTION verif_utilisateur_destinataire()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM Utilisateur WHERE Uemail = NEW.Uemail_destinataire
+    ) THEN
+        RAISE EXCEPTION 'Utilisateur destinataire % inexistant', NEW.Uemail_destinataire;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_verif_utilisateur_destinataire
+BEFORE INSERT ON Echange
+FOR EACH ROW
+EXECUTE FUNCTION verif_utilisateur_destinataire();
