@@ -700,75 +700,10 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Fonction d'échange de billet entre deux utilisateurs
-CREATE OR REPLACE FUNCTION echanger_billet(
-    emetteur VARCHAR,
-    destinataire VARCHAR,
-    billet_id TEXT
-) RETURNS VOID AS $$
-DECLARE
-    jour INT;
-    heure INT;
-BEGIN
-
-    SELECT T.jour, T.heure INTO jour, heure
-    FROM TEMPS T LIMIT 1;
-
-    -- Vérifier que l'émetteur possède le billet
-    IF NOT EXISTS (
-        SELECT 1 FROM Reservation
-        WHERE Uemail = emetteur AND Bid = billet_id
-    ) THEN
-        RAISE EXCEPTION 'L''émetteur ne possède pas ce billet';
-    END IF;
-
-    -- Mettre à jour la réservation : transférer le billet au destinataire
-    UPDATE Reservation
-    SET Uemail = destinataire
-    WHERE Uemail = emetteur AND Bid = billet_id;
-
-    -- Insérer la trace dans la table Echange
-    INSERT INTO Echange (Uemail_emetteur, Uemail_destinataire, Bid, ECjour, ECheure)
-    VALUES (emetteur, destinataire, billet_id, jour, heure);
-END;
-$$ LANGUAGE plpgsql;
-
--- Fonction d'échange de billet entre deux utilisateurs
-CREATE OR REPLACE FUNCTION echanger_billet(
-    emetteur VARCHAR,
-    destinataire VARCHAR,
-    billet_id TEXT
-) RETURNS VOID AS $$
-DECLARE
-    jour INT;
-    heure INT;
-BEGIN
-
-    SELECT T.jour, T.heure INTO jour, heure
-    FROM TEMPS T LIMIT 1;
-
-    -- Vérifier que l'émetteur possède le billet
-    IF NOT EXISTS (
-        SELECT 1 FROM Reservation
-        WHERE Uemail = emetteur AND Bid = billet_id
-    ) THEN
-        RAISE EXCEPTION 'L''émetteur ne possède pas ce billet';
-    END IF;
-
-    -- Mettre à jour la réservation : transférer le billet au destinataire
-    UPDATE Reservation
-    SET Uemail = destinataire
-    WHERE Uemail = emetteur AND Bid = billet_id;
-
-    -- Insérer la trace dans la table Echange
-    INSERT INTO Echange (Uemail_emetteur, Uemail_destinataire, Bid, ECjour, ECheure)
-    VALUES (emetteur, destinataire, billet_id, jour, heure);
-END;
-$$ LANGUAGE plpgsql;
-
 CREATE OR REPLACE FUNCTION initier_echange(
     billet_id TEXT,
-    user_email VARCHAR(255)
+    user_email VARCHAR(255),
+    prix DECIMAL(10, 2)
 )
 RETURNS VOID AS $$
 DECLARE
@@ -793,8 +728,8 @@ BEGIN
     LIMIT 1;
 
     -- Insérer l'échange (destinataire NULL au départ)
-    INSERT INTO Echange (Uemail_emetteur, Uemail_destinataire, Bid, Ejour, Eheure)
-    VALUES (user_email, NULL, billet_id, v_ejour, v_eheure);
+    INSERT INTO Echange (Uemail_emetteur, Uemail_destinataire, Bid, ECjour, ECheure, ECprix)
+    VALUES (user_email, NULL, billet_id, v_ejour, v_eheure, prix);
 END;
 $$ LANGUAGE plpgsql;
 
@@ -850,6 +785,11 @@ BEGIN
     -- Créer la réservation pour le destinataire
     INSERT INTO Reservation (Uemail, Bid, Rjour_debut, Rheure_debut, Rstatut)
     VALUES (destinataire, billet_id, v_ejour, v_eheure, 'Confirme');
+
+    -- Mettre à jour le prix d'achat du billet
+    UPDATE Billet
+    SET Bprix_achat = (SELECT ECprix FROM Echange WHERE Bid = billet_id AND Uemail_emetteur = emetteur)
+    WHERE Bid = billet_id;
 
     -- Mettre à jour l'échange (ajouter le destinataire)
     UPDATE Echange

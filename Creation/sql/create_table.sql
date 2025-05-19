@@ -76,6 +76,7 @@ CREATE TABLE Echange (
     Bid TEXT NOT NULL,
     ECjour INT NOT NULL,
     ECheure INT NOT NULL,
+    ECprix DECIMAL(10, 2) NOT NULL,
     FOREIGN KEY (Uemail_emetteur) REFERENCES Utilisateur(Uemail),
     FOREIGN KEY (Uemail_destinataire) REFERENCES Utilisateur(Uemail),
     FOREIGN KEY (Bid) REFERENCES Billet(Bid),
