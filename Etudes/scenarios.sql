@@ -22,13 +22,10 @@ BEGIN
     -- Récupérer le temps courant
     SELECT jour, heure INTO jour_courant, heure_courant FROM TEMPS LIMIT 1;
 
-    -- Vérifier que le billet correspond au créneau temporel actuel
-    IF v_ejour IS NULL OR v_eheure IS NULL OR v_ejour <> jour_courant OR v_eheure <> heure_courant THEN
-        RETURN FALSE;
-    END IF;
+    
 
     -- Vérifier si cet événement existe dans CreneauConnexionEvenement et récupérer le CCetat
-    SELECT CCetat INTO v_ccetat
+    SELECT CCetat, CCjour_debut, CCheure_debut INTO v_ccetat, v_ejour, v_eheure
     FROM CreneauConnexionEvenement
     WHERE Enom_complet = v_enom_complet
       AND Ejour = v_ejour
@@ -36,7 +33,12 @@ BEGIN
       AND Enum_salle = v_enum_salle
     LIMIT 1;
 
+    
     IF FOUND THEN
+        -- Vérifier que le billet correspond au créneau temporel actuel
+        IF v_ejour IS NULL OR v_eheure IS NULL OR v_ejour <> jour_courant OR v_eheure <> heure_courant THEN
+            RETURN FALSE;
+        END IF;
         -- Vérifier si l'utilisateur est autorisé pour ce créneau
         SELECT TRUE INTO is_autorise
         FROM CreneauConnexionUtilisateur
@@ -50,8 +52,6 @@ BEGIN
     END IF;
 END;
 $$ LANGUAGE plpgsql;
-
-
 
 
 -- Fonction pour pré-réserver un billet
@@ -310,33 +310,32 @@ DECLARE
     jour INT;
     heure INT;
 BEGIN
-    SELECT jour, heure INTO jour, heure
-    FROM TEMPS LIMIT 1;
+    SELECT T.jour, T.heure INTO jour, heure
+    FROM TEMPS T LIMIT 1;
 
-    -- Récupérer le nombre de connexions actives (utilise index sur (CCjour_debut, CCheure_debut))
+    -- Récupérer le nombre de connexions actives
     SELECT COUNT(*) INTO connexions_actuelles
-    FROM CreneauConnexionUtilisateur
-    WHERE CCjour_debut = jour
-      AND CCheure_debut = heure;
+    FROM CreneauConnexionUtilisateur CCU
+    WHERE CCU.CCjour_debut = jour
+      AND CCU.CCheure_debut = heure;
 
-    SELECT COALESCE(SUM(max_connexions), 0) INTO max_server_connexions
-    FROM CreneauConnexion
-    WHERE CCjour_debut = jour
-      AND CCheure_debut = heure
-      AND (CCetat = 'Ouvert' OR CCetat = 'En attente');
+    SELECT COALESCE(SUM(C.CCmax_connexions), 0) INTO max_server_connexions
+    FROM CreneauConnexion C
+    WHERE C.CCjour_debut = jour
+      AND C.CCheure_debut = heure
+      AND (C.CCetat = 'Ouvert' OR C.CCetat = 'En attente');
 
-
-    SELECT max_connexions INTO max_connexions_actif
-    FROM CreneauConnexion
-    WHERE CCjour_debut = jour
-      AND CCheure_debut = heure
-      AND CCetat = 'Ouvert';
+    SELECT C.CCmax_connexions INTO max_connexions_actif
+    FROM CreneauConnexion C
+    WHERE C.CCjour_debut = jour
+      AND C.CCheure_debut = heure
+      AND C.CCetat = 'Ouvert';
 
     IF connexions_actuelles >= max_server_connexions THEN
         INSERT INTO CreneauConnexionUtilisateur (CCjour_debut, CCheure_debut, Uemail, CCetat)
         VALUES (jour, heure, user_email, 'Ferme');
         RAISE EXCEPTION 'Charge système maximale atteinte. Veuillez réessayer plus tard.'; 
-    ELSEIF connexions_actuelles >= max_connexions_actif THEN
+    ELSIF connexions_actuelles >= max_connexions_actif THEN
         INSERT INTO CreneauConnexionUtilisateur (CCjour_debut, CCheure_debut, Uemail, CCetat)
         VALUES (jour, heure, user_email, 'En attente');
     ELSE
@@ -514,13 +513,13 @@ BEGIN
     -- Vérifier si l'utilisateur existe
     IF NOT EXISTS (
         SELECT 1
-        FROM Utilisateur
-        WHERE Uemail = user_email
+        FROM Utilisateur U
+        WHERE U.Uemail = user_email
     ) THEN
         RAISE EXCEPTION 'Utilisateur % non trouvé', user_email;
     END IF;
 
-    SELECT gerer_creneau_connexion(user_email);
+    PERFORM gerer_creneau_connexion(user_email);
 
     -- Mettre à jour le statut de l'utilisateur à connecté
     UPDATE Utilisateur
@@ -540,11 +539,14 @@ BEGIN
     -- Vérifier si l'utilisateur existe
     IF NOT EXISTS (
         SELECT 1
-        FROM Utilisateur
-        WHERE Uemail = user_email
+        FROM Utilisateur U
+        WHERE U.Uemail = user_email
     ) THEN
         RAISE EXCEPTION 'Utilisateur % non trouvé', user_email;
     END IF;
+
+    DELETE FROM CreneauConnexionUtilisateur
+    WHERE Uemail = user_email;
 
     -- Mettre à jour le statut de l'utilisateur à déconnecté
     UPDATE Utilisateur
@@ -557,13 +559,11 @@ $$ LANGUAGE plpgsql;
 CREATE OR REPLACE FUNCTION increment_temps_jour()
 RETURNS VOID AS $$
 BEGIN
-    -- Incrémenter le jour de 1
+    -- Incrémenter le jour de 1 
     UPDATE TEMPS
-    SET jour = jour + 1;
+    SET jour = jour + 1, 
+        heure = 0;
 
-    -- Réinitialiser l'heure à 0
-    UPDATE TEMPS
-    SET heure = 0;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -652,7 +652,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Correction dans inscription_evenement_prive :
+-- Fonction pour inscrire un utilisateur à un événement privé
 CREATE OR REPLACE FUNCTION inscription_evenement_prive(
     user_email VARCHAR(255),
     nom_complet TEXT
@@ -704,7 +704,7 @@ $$ LANGUAGE plpgsql;
 CREATE OR REPLACE FUNCTION echanger_billet(
     emetteur VARCHAR,
     destinataire VARCHAR,
-    billet_id TEXT,
+    billet_id TEXT
 ) RETURNS VOID AS $$
 DECLARE
     jour INT;
@@ -730,5 +730,135 @@ BEGIN
     -- Insérer la trace dans la table Echange
     INSERT INTO Echange (Uemail_emetteur, Uemail_destinataire, Bid, ECjour, ECheure)
     VALUES (emetteur, destinataire, billet_id, jour, heure);
+END;
+$$ LANGUAGE plpgsql;
+
+-- Fonction d'échange de billet entre deux utilisateurs
+CREATE OR REPLACE FUNCTION echanger_billet(
+    emetteur VARCHAR,
+    destinataire VARCHAR,
+    billet_id TEXT
+) RETURNS VOID AS $$
+DECLARE
+    jour INT;
+    heure INT;
+BEGIN
+
+    SELECT T.jour, T.heure INTO jour, heure
+    FROM TEMPS T LIMIT 1;
+
+    -- Vérifier que l'émetteur possède le billet
+    IF NOT EXISTS (
+        SELECT 1 FROM Reservation
+        WHERE Uemail = emetteur AND Bid = billet_id
+    ) THEN
+        RAISE EXCEPTION 'L''émetteur ne possède pas ce billet';
+    END IF;
+
+    -- Mettre à jour la réservation : transférer le billet au destinataire
+    UPDATE Reservation
+    SET Uemail = destinataire
+    WHERE Uemail = emetteur AND Bid = billet_id;
+
+    -- Insérer la trace dans la table Echange
+    INSERT INTO Echange (Uemail_emetteur, Uemail_destinataire, Bid, ECjour, ECheure)
+    VALUES (emetteur, destinataire, billet_id, jour, heure);
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION initier_echange(
+    billet_id TEXT,
+    user_email VARCHAR(255)
+)
+RETURNS VOID AS $$
+DECLARE
+    v_ejour INT;
+    v_eheure INT;
+BEGIN
+    -- Vérifier que l'utilisateur possède bien le billet en statut 'Reserve' ou 'Confirme'
+    IF NOT EXISTS (
+        SELECT 1 FROM Reservation
+        WHERE Uemail = user_email
+          AND Bid = billet_id
+          AND Rstatut = 'Confirme'
+    ) THEN
+        RAISE EXCEPTION 'L''utilisateur % ne possède pas le billet % ou le billet n''est pas échangeable', user_email, billet_id;
+    END IF;
+
+    -- Récupérer le jour et l'heure de l'achat'
+    SELECT Rjour_debut, Rheure_debut INTO v_ejour, v_eheure
+    FROM Reservation
+    WHERE Uemail = user_email
+      AND Bid = billet_id
+    LIMIT 1;
+
+    -- Insérer l'échange (destinataire NULL au départ)
+    INSERT INTO Echange (Uemail_emetteur, Uemail_destinataire, Bid, Ejour, Eheure)
+    VALUES (user_email, NULL, billet_id, v_ejour, v_eheure);
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION effectuer_echange(
+    billet_id TEXT,
+    emetteur VARCHAR(255),
+    destinataire VARCHAR(255)
+)
+RETURNS VOID AS $$
+DECLARE
+    v_ejour INT;
+    v_eheure INT;
+BEGIN
+    -- Vérifier que l'échange existe et que le billet appartient bien à l'émetteur
+    IF NOT EXISTS (
+        SELECT 1 FROM Echange
+        WHERE Bid = billet_id
+          AND Uemail_emetteur = emetteur
+          AND Uemail_destinataire IS NULL
+    ) THEN
+        RAISE EXCEPTION 'Aucun échange disponible pour ce billet ou déjà pris.';
+    END IF;
+
+    -- Vérifier que le destinataire n'a pas déjà ce billet
+    IF EXISTS (
+        SELECT 1 FROM Reservation
+        WHERE Uemail = destinataire
+          AND Bid = billet_id
+    ) THEN
+        RAISE EXCEPTION 'Le destinataire possède déjà ce billet.';
+    END IF;
+
+    -- Vérifier que le destinataire n'a pas atteint la limite de pré-réservations
+    IF (SELECT COUNT(*)
+        FROM Reservation
+        WHERE Uemail = destinataire
+          AND Rstatut = 'Pre-reserve') >= (SELECT Unb_max_billets FROM Utilisateur WHERE Uemail = destinataire) THEN
+        RAISE EXCEPTION 'Limite de pré-réservations atteinte pour l''utilisateur %', destinataire;
+    END IF;
+
+    -- Récupérer le jour et l'heure de la réservation
+    SELECT Rjour_debut, Rheure_debut INTO v_ejour, v_eheure
+    FROM Reservation
+    WHERE Uemail = emetteur
+      AND Bid = billet_id
+    LIMIT 1;
+
+    -- Supprimer la réservation de l'émetteur
+    DELETE FROM Reservation
+    WHERE Uemail = emetteur
+      AND Bid = billet_id;
+
+    -- Créer la réservation pour le destinataire
+    INSERT INTO Reservation (Uemail, Bid, Rjour_debut, Rheure_debut, Rstatut)
+    VALUES (destinataire, billet_id, v_ejour, v_eheure, 'Confirme');
+
+    -- Mettre à jour l'échange (ajouter le destinataire)
+    UPDATE Echange
+    SET Uemail_destinataire = destinataire
+    WHERE Bid = billet_id
+      AND Uemail_emetteur = emetteur
+      AND Uemail_destinataire IS NULL;
+
+    DELETE FROM Echange WHERE Bid = billet_id AND Uemail_emetteur = emetteur;
+
 END;
 $$ LANGUAGE plpgsql;

@@ -199,3 +199,35 @@ BEGIN
     ORDER BY R.Rjour_debut, R.Rheure_debut, R.Bid;
 END;
 $$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION affichage_billets_echange(
+)
+RETURNS TABLE(
+    Bid TEXT,
+    Ejour INT,
+    Eheure INT,
+    Uemail_emetteur VARCHAR,
+    Uemail_destinataire VARCHAR
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT E.Bid, E.Ejour, E.Eheure, E.Uemail_emetteur, E.Uemail_destinataire
+    FROM Echange E
+    ORDER BY E.Ejour, E.Eheure, E.Bid;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION affichage_utilisateurs_connectes()
+RETURNS TABLE(
+    Uemail VARCHAR,
+    Unom VARCHAR,
+    Uprenom VARCHAR,
+    Ustatut VARCHAR
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT U.Uemail, U.Unom, U.Uprenom, U.Ustatut
+    FROM Utilisateur U
+    WHERE U.Uconnecte = TRUE;
+END;
+$$ LANGUAGE plpgsql;

@@ -72,14 +72,14 @@ CREATE TABLE Evenement (
 -- Relations
 CREATE TABLE Echange (
     Uemail_emetteur VARCHAR(255) NOT NULL,
-    Uemail_destinataire VARCHAR(255) NOT NULL,
+    Uemail_destinataire VARCHAR(255),
     Bid TEXT NOT NULL,
     ECjour INT NOT NULL,
     ECheure INT NOT NULL,
     FOREIGN KEY (Uemail_emetteur) REFERENCES Utilisateur(Uemail),
     FOREIGN KEY (Uemail_destinataire) REFERENCES Utilisateur(Uemail),
     FOREIGN KEY (Bid) REFERENCES Billet(Bid),
-    PRIMARY KEY (Uemail_emetteur, Uemail_destinataire, ECjour, ECheure, Bid)
+    PRIMARY KEY (Uemail_emetteur, ECjour, ECheure, Bid)
 );
 
 CREATE TABLE Reservation (

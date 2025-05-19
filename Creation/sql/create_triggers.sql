@@ -13,8 +13,8 @@ BEGIN
     END IF;
 
     INSERT INTO CreneauConnexion (CCjour_debut, CCheure_debut, CCetat, CCmax_connexions)
-    VALUES (NEW.jour, NEW.heure, 'Ouvert', 100), 
-           (NEW.jour, NEW.heure, 'En attente', 100),
+    VALUES (NEW.jour, NEW.heure, 'Ouvert', 5), 
+           (NEW.jour, NEW.heure, 'En attente', 5),
             (NEW.jour, NEW.heure, 'Ferme', 0);
 
 
@@ -304,19 +304,13 @@ BEGIN
                 AND (split_part(Bid, '-', 4)::int) < NEW.heure
             )
     LOOP
-        DELETE FROM Achat WHERE Bid = billet_rec.Bid;
         DELETE FROM Echange WHERE Bid = billet_rec.Bid;
         DELETE FROM CategorieBillet WHERE Bid = billet_rec.Bid;
-        DELETE FROM Billet WHERE Bid = billet_rec.Bid;
+        -- DELETE FROM Billet WHERE Bid = billet_rec.Bid;
         UPDATE Reservation
         SET Rstatut = 'Termine'
         WHERE Bid = billet_rec.Bid;
     END LOOP;
-
-    INSERT INTO CreneauConnexion (CCjour_debut, CCheure_debut, CCetat, CCmax_connexions)
-    VALUES (NEW.jour, NEW.heure, 'Ouvert', 100), 
-           (NEW.jour, NEW.heure, 'En attente', 100),
-              (NEW.jour, NEW.heure, 'Ferme', 0);
 
     RETURN NEW;
 END;
@@ -328,32 +322,32 @@ FOR EACH ROW
 EXECUTE PROCEDURE check_after_timer_update();
 
 
-CREATE OR REPLACE FUNCTION check_user()
-RETURNS TRIGGER AS $$
-BEGIN
-    UPDATE Utilisateur
-    SET Ususpect = TRUE
-    WHERE Uemail IN (
-        SELECT U.Uemail
-        FROM Utilisateur U
-        JOIN Reservation R ON U.Uemail = R.Uemail
-        WHERE U.Uemail = NEW.Uemail
-        GROUP BY U.Uemail
-        HAVING 
-            COUNT(CASE WHEN R.Rstatut = 'Annule' THEN 1 END) > 10 -- Plus de 10 annulations
-            OR COUNT(R.Bid) > 50 -- Plus de 50 réservations
-            -- C Cette partie à revoir
-            -- OR (MAX(R.Rjour_debut) - MIN(R.Rjour_debut)) * 24 + (MAX(R.Rheure_debut) - MIN(R.Rheure_debut)) < 1 -- Durée moyenne < 1 heure
-            -- OR (MAX(R.Rjour_debut * 24 + R.Rheure_debut) - MIN(R.Rjour_debut * 24 + R.Rheure_debut)) < 24 -- Réservations concentrées sur une journée
-    );
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
+-- CREATE OR REPLACE FUNCTION check_user()
+-- RETURNS TRIGGER AS $$
+-- BEGIN
+--     UPDATE Utilisateur
+--     SET Ususpect = TRUE
+--     WHERE Uemail IN (
+--         SELECT U.Uemail
+--         FROM Utilisateur U
+--         JOIN Reservation R ON U.Uemail = R.Uemail
+--         WHERE U.Uemail = NEW.Uemail
+--         GROUP BY U.Uemail
+--         HAVING 
+--             COUNT(CASE WHEN R.Rstatut = 'Annule' THEN 1 END) > 10 -- Plus de 10 annulations
+--             OR COUNT(R.Bid) > 50 -- Plus de 50 réservations
+--             -- C Cette partie à revoir
+--             -- OR (MAX(R.Rjour_debut) - MIN(R.Rjour_debut)) * 24 + (MAX(R.Rheure_debut) - MIN(R.Rheure_debut)) < 1 -- Durée moyenne < 1 heure
+--             -- OR (MAX(R.Rjour_debut * 24 + R.Rheure_debut) - MIN(R.Rjour_debut * 24 + R.Rheure_debut)) < 24 -- Réservations concentrées sur une journée
+--     );
+--     RETURN NEW;
+-- END;
+-- $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER check_user
-AFTER UPDATE ON TEMPS
-FOR EACH ROW
-EXECUTE FUNCTION check_user();
+-- CREATE TRIGGER check_user
+-- AFTER UPDATE ON TEMPS
+-- FOR EACH ROW
+-- EXECUTE FUNCTION check_user();
 
 CREATE OR REPLACE FUNCTION nettoyage_creneaux_connexion()
 RETURNS TRIGGER AS $$

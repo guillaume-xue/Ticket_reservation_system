@@ -1,0 +1,13 @@
+SELECT inserer_utilisateur('toto@mail.com','to','to','VIP'); OK
+SELECT connexion_utilisateur('toto@mail.com'); OK
+SELECT deconnexion_utilisateur('toto@mail.com'); OK
+SELECT increment_temps_heure(); OK
+SELECT increment_temps_jour(); OK
+SELECT evenement_sur_reservation('FilmIronMan1', 1, 1, 1, 0, 2); OK
+SELECT inscription_evenement_prive('toto@mail.com','FilmIronMan1-1-1-1'); OK
+SELECT pre_reserver_billet('toto@mail.com','FilmIronMan1-IronMan1-1-1-3-7-Unique'); OK
+SELECT confirmer_reservation('toto@mail.com','FilmIronMan1-IronMan1-1-1-3-7-Unique'); OK
+SELECT pre_reserver_billet('toto@mail.com','FilmIronMan1-IronMan1-1-1-1-1-Unique'); OK
+SELECT confirmer_reservation('toto@mail.com','FilmIronMan1-IronMan1-1-1-1-1-Unique'); OK
+SELECT initier_echange('FilmIronMan1-IronMan1-1-1-1-1-Unique','toto@mail.com'); OK
+SELECT effectuer_echange('FilmIronMan1-IronMan1-1-1-1-1-Unique','toto@mail.com','AA.BB@mail.com'); OK
