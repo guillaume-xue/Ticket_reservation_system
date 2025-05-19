@@ -281,6 +281,26 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Fonction transactionnelle pour pré-réserver puis confirmer un billet
+CREATE OR REPLACE FUNCTION transaction_reservation_billet(
+    user_email VARCHAR(255),
+    billet_id TEXT,
+    promotion INT DEFAULT 0
+)
+RETURNS VOID AS $$
+BEGIN
+    -- Essayer de pré-réserver puis confirmer la réservation
+    PERFORM pre_reserver_billet(user_email, billet_id);
+    PERFORM confirmer_reservation(user_email, billet_id, promotion);
+EXCEPTION
+    WHEN OTHERS THEN
+        -- En cas d'erreur, annuler la réservation si elle existe
+        PERFORM annuler_reservation(user_email, billet_id);
+        RAISE NOTICE 'Erreur lors de la transaction, annulation effectuée : %', SQLERRM;
+        RAISE;
+END;
+$$ LANGUAGE plpgsql;
+
 -- Fonction pour récupérer les utilisateurs suspects
 -- Cette fonction retourne les utilisateurs qui ont un nombre de réservations
 -- supérieur ou égal à un seuil donné.
