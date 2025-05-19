@@ -17,12 +17,11 @@ BEGIN
     SELECT Enom_complet, Ejour, Eheure, Enum_salle
     INTO v_enom_complet, v_ejour, v_eheure, v_enum_salle
     FROM BilletEvenement
-    WHERE Bid = billet_id;
+    WHERE Bid = billet_id
+    FOR UPDATE;
 
     -- Récupérer le temps courant
-    SELECT jour, heure INTO jour_courant, heure_courant FROM TEMPS LIMIT 1;
-
-    
+    SELECT jour, heure INTO jour_courant, heure_courant FROM TEMPS LIMIT 1 FOR UPDATE;
 
     -- Vérifier si cet événement existe dans CreneauConnexionEvenement et récupérer le CCetat
     SELECT CCetat, CCjour_debut, CCheure_debut INTO v_ccetat, v_ejour, v_eheure
@@ -31,9 +30,9 @@ BEGIN
       AND Ejour = v_ejour
       AND Eheure = v_eheure
       AND Enum_salle = v_enum_salle
-    LIMIT 1;
+    LIMIT 1
+    FOR UPDATE;
 
-    
     IF FOUND THEN
         -- Vérifier que le billet correspond au créneau temporel actuel
         IF v_ejour IS NULL OR v_eheure IS NULL OR v_ejour <> jour_courant OR v_eheure <> heure_courant THEN
@@ -44,7 +43,8 @@ BEGIN
         FROM CreneauConnexionUtilisateur
         WHERE CCetat = v_ccetat
           AND Uemail = email_utilisateur
-        LIMIT 1;
+        LIMIT 1
+        FOR UPDATE;
         RETURN is_autorise;
     ELSE
         -- Ce n'est pas un événement privé, donc l'utilisateur est autorisé
@@ -68,6 +68,10 @@ DECLARE
     jour_courant INT;
     heure_courant INT;
 BEGIN
+    -- Gestion de la concurrence sur Billet et Utilisateur
+    PERFORM 1 FROM Billet WHERE Bid = billet_id FOR UPDATE;
+    PERFORM 1 FROM Utilisateur WHERE Uemail = user_email FOR UPDATE;
+
     IF NOT (SELECT check_is_evenement_prive(billet_id, user_email)) THEN
         RAISE EXCEPTION 'Le billet % est associé à un événement privé', billet_id;
     END IF;
@@ -86,7 +90,8 @@ BEGIN
     -- Avoir le nombre maximum de billets autorisés pour l'utilisateur
     SELECT U.Unb_max_billets INTO nb_max_billets
     FROM Utilisateur U
-    WHERE U.Uemail = user_email;
+    WHERE U.Uemail = user_email
+    FOR UPDATE;
 
     -- Vérifier si l'utilisateur existe
     IF nb_max_billets IS NULL THEN
@@ -97,13 +102,14 @@ BEGIN
     IF (SELECT COUNT(*)
         FROM Reservation R
         WHERE R.Uemail = user_email
-          AND R.Rstatut = 'Pre-reserve') >= nb_max_billets THEN
+          AND R.Rstatut = 'Pre-reserve'
+        FOR UPDATE) >= nb_max_billets THEN
         RAISE EXCEPTION 'Limite de pré-réservations atteinte pour l''utilisateur %', user_email;
     END IF;
 
     -- Récupérer le jour et l'heure actuels
     SELECT T.jour, T.heure INTO jour_courant, heure_courant
-    FROM TEMPS T LIMIT 1;
+    FROM TEMPS T LIMIT 1 FOR UPDATE;
 
     -- Insertion de la pré-réservation
     INSERT INTO Reservation (Uemail, Bid, Rjour_debut, Rheure_debut, Rstatut)
@@ -159,7 +165,8 @@ BEGIN
     SELECT C.CATprix INTO prix_achat
     FROM CategorieBillet CB
     JOIN Categorie C ON CB.CATnom = C.CATnom
-    WHERE CB.Bid = billet_id;
+    WHERE CB.Bid = billet_id
+    FOR UPDATE;
 
     -- Appliquer la promotion si elle est fournie
     IF promotion IS NOT NULL THEN
@@ -190,6 +197,10 @@ DECLARE
     nb_max_billets INT;
     billet_disponible BOOLEAN;
 BEGIN
+    -- Gestion de la concurrence sur Billet et Utilisateur
+    PERFORM 1 FROM Billet WHERE Bid = billet_id FOR UPDATE;
+    PERFORM 1 FROM Utilisateur WHERE Uemail = user_email FOR UPDATE;
+
     -- Vérification de la disponibilité du billet
     SELECT Bdisponibilite INTO billet_disponible
     FROM Billet
@@ -204,7 +215,8 @@ BEGIN
     -- Avoir le nombre maximum de billets autorisés pour l'utilisateur
     SELECT Unb_max_billets INTO nb_max_billets
     FROM Utilisateur
-    WHERE Uemail = user_email;
+    WHERE Uemail = user_email
+    FOR UPDATE;
 
     -- Vérifier si l'utilisateur existe
     IF nb_max_billets IS NULL THEN
@@ -308,25 +320,28 @@ DECLARE
     heure INT;
 BEGIN
     SELECT T.jour, T.heure INTO jour, heure
-    FROM TEMPS T LIMIT 1;
+    FROM TEMPS T LIMIT 1 FOR UPDATE;
 
     -- Récupérer le nombre de connexions actives
     SELECT COUNT(*) INTO connexions_actuelles
     FROM CreneauConnexionUtilisateur CCU
     WHERE CCU.CCjour_debut = jour
-      AND CCU.CCheure_debut = heure;
+      AND CCU.CCheure_debut = heure
+    FOR UPDATE;
 
     SELECT COALESCE(SUM(C.CCmax_connexions), 0) INTO max_server_connexions
     FROM CreneauConnexion C
     WHERE C.CCjour_debut = jour
       AND C.CCheure_debut = heure
-      AND (C.CCetat = 'Ouvert' OR C.CCetat = 'En attente');
+      AND (C.CCetat = 'Ouvert' OR C.CCetat = 'En attente')
+    FOR UPDATE;
 
     SELECT C.CCmax_connexions INTO max_connexions_actif
     FROM CreneauConnexion C
     WHERE C.CCjour_debut = jour
       AND C.CCheure_debut = heure
-      AND C.CCetat = 'Ouvert';
+      AND C.CCetat = 'Ouvert'
+    FOR UPDATE;
 
     IF connexions_actuelles >= max_server_connexions THEN
         INSERT INTO CreneauConnexionUtilisateur (CCjour_debut, CCheure_debut, Uemail, CCetat)
@@ -397,6 +412,7 @@ BEGIN
         SELECT 1
         FROM Utilisateur U
         WHERE U.Uemail = user_email
+        FOR UPDATE
     ) THEN
         RAISE EXCEPTION 'Utilisateur % non trouvé', user_email;
     END IF;
@@ -423,6 +439,7 @@ BEGIN
         SELECT 1
         FROM Utilisateur U
         WHERE U.Uemail = user_email
+        FOR UPDATE
     ) THEN
         RAISE EXCEPTION 'Utilisateur % non trouvé', user_email;
     END IF;
@@ -458,7 +475,7 @@ BEGIN
     SET heure = heure + 1;
 
     -- Si l'heure atteint 24, incrémenter le jour de 1 et réinitialiser l'heure à 0
-    IF (SELECT heure FROM TEMPS) >= 24 THEN
+    IF (SELECT heure FROM TEMPS FOR UPDATE) >= 24 THEN
         PERFORM increment_temps_jour();
     END IF;
 END;
@@ -500,7 +517,8 @@ BEGIN
     WHERE e.Enom_complet = nom_complet
       AND e.Ejour = jour_param
       AND e.Eheure = heure_param
-      AND e.Enum_salle = num_salle;
+      AND e.Enum_salle = num_salle
+    FOR UPDATE;
 
     IF evenement_id IS NULL THEN
         RAISE EXCEPTION 'Événement % non trouvé', evenement_id;
@@ -513,15 +531,18 @@ BEGIN
     ELSIF type_evenement = 'Film' THEN
         SELECT c.CATnb_place INTO nb_places
         FROM Categorie c
-        WHERE c.CATnom = 'Unique';
+        WHERE c.CATnom = 'Unique'
+        FOR UPDATE;
     ELSIF type_evenement = 'Concert' THEN
         SELECT SUM(c.CATnb_place) INTO nb_places
         FROM Categorie c
-        WHERE c.CATnom IN ('Carre Or', 'Cat1', 'Cat2', 'Cat3', 'Cat4');
+        WHERE c.CATnom IN ('Carre Or', 'Cat1', 'Cat2', 'Cat3', 'Cat4')
+        FOR UPDATE;
     ELSIF type_evenement = 'SousEvenement' THEN
         SELECT c.CATnb_place INTO nb_places
         FROM Categorie c
-        WHERE c.CATnom = 'UniqueVIP';
+        WHERE c.CATnom = 'UniqueVIP'
+        FOR UPDATE;
     ELSE
         RAISE EXCEPTION 'Type événement non pris en charge pour %', nom_complet;
     END IF;
@@ -551,6 +572,7 @@ BEGIN
         SELECT 1
         FROM Utilisateur
         WHERE Uemail = user_email
+        FOR UPDATE
     ) THEN
         RAISE EXCEPTION 'Utilisateur % non trouvé', user_email;
     END IF;
@@ -560,17 +582,20 @@ BEGIN
         SELECT 1
         FROM CreneauConnexion
         WHERE CCetat = nom_complet
+        FOR UPDATE
     ) THEN
         RAISE EXCEPTION 'Événement % non trouvé', nom_complet;
     END IF;
 
     SELECT COUNT(*) INTO nb_connexions
     FROM CreneauConnexionUtilisateur
-    WHERE CCetat = nom_complet;
+    WHERE CCetat = nom_complet
+    FOR UPDATE;
 
     SELECT CCmax_connexions, CCjour_debut, CCheure_debut INTO max_connexions, jour_evt, heure_evt
     FROM CreneauConnexion
-    WHERE CCetat = nom_complet;
+    WHERE CCetat = nom_complet
+    FOR UPDATE;
 
     IF nb_connexions >= max_connexions THEN
         RAISE EXCEPTION 'Le nombre maximum de pré inscription pour événement % a été atteint', nom_complet;
@@ -598,6 +623,7 @@ BEGIN
         WHERE Uemail = user_email
           AND Bid = billet_id
           AND Rstatut = 'Confirme'
+        FOR UPDATE
     ) THEN
         RAISE EXCEPTION 'L''utilisateur % ne possède pas le billet % ou le billet n''est pas échangeable', user_email, billet_id;
     END IF;
@@ -607,7 +633,8 @@ BEGIN
     FROM Reservation
     WHERE Uemail = user_email
       AND Bid = billet_id
-    LIMIT 1;
+    LIMIT 1
+    FOR UPDATE;
 
     -- Insérer l'échange (destinataire NULL au départ)
     INSERT INTO Echange (Uemail_emetteur, Uemail_destinataire, Bid, ECjour, ECheure, ECprix)
@@ -631,6 +658,7 @@ BEGIN
         WHERE Bid = billet_id
           AND Uemail_emetteur = emetteur
           AND Uemail_destinataire IS NULL
+        FOR UPDATE
     ) THEN
         RAISE EXCEPTION 'Aucun échange disponible pour ce billet ou déjà pris.';
     END IF;
@@ -640,6 +668,7 @@ BEGIN
         SELECT 1 FROM Reservation
         WHERE Uemail = destinataire
           AND Bid = billet_id
+        FOR UPDATE
     ) THEN
         RAISE EXCEPTION 'Le destinataire possède déjà ce billet.';
     END IF;
@@ -648,7 +677,8 @@ BEGIN
     IF (SELECT COUNT(*)
         FROM Reservation
         WHERE Uemail = destinataire
-          AND Rstatut = 'Pre-reserve') >= (SELECT Unb_max_billets FROM Utilisateur WHERE Uemail = destinataire) THEN
+          AND Rstatut = 'Pre-reserve'
+        FOR UPDATE) >= (SELECT Unb_max_billets FROM Utilisateur WHERE Uemail = destinataire FOR UPDATE) THEN
         RAISE EXCEPTION 'Limite de pré-réservations atteinte pour l''utilisateur %', destinataire;
     END IF;
 
@@ -657,7 +687,8 @@ BEGIN
     FROM Reservation
     WHERE Uemail = emetteur
       AND Bid = billet_id
-    LIMIT 1;
+    LIMIT 1
+    FOR UPDATE;
 
     -- Supprimer la réservation de l'émetteur
     DELETE FROM Reservation
